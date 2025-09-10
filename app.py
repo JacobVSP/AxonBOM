@@ -50,10 +50,10 @@ OUTPUTS_ONBOARD_PANEL = 5
 DOOR_MAX   = 56
 OUTPUT_MAX = 128   # Doors + Sirens + Other
 ZONE_MAX   = 256
+PANEL_1811_LIMIT = 4  # max number of ATS1811 on panel
 
 # =========================
 # Embedded catalogue (SKU -> Name)
-# Pulled from your catalogue; 1201E corrected per your instruction.
 # =========================
 NAME_MAP = {
     # Panel / Lift
@@ -80,7 +80,7 @@ NAME_MAP = {
     "AXON-ATS1811": "Axon 8 Way Relay Card",
 
     # DGP path (corrected)
-    "AXON-ATS1201E": "AXON 32 Input/Output DGP Expander",   # 8 onboard zones; up to 32 I/O via 1202/1810/1811
+    "AXON-ATS1201E": "AXON 32 Input/Output DGP Expander",   # 8 zones onboard; up to 32 I/O via 1202/1810/1811
     "AXON-ATS1202": "AXON 8 Input Expander",
     "AXON-ATS1211E": "8 Input/Output DGP Expander + Metal Housing",
 
@@ -97,9 +97,7 @@ NAME_MAP = {
 def get_name(sku: str) -> str:
     return NAME_MAP.get(sku, sku)
 
-# =========================
-# SKUs referenced by the tool
-# =========================
+# SKUs referenced by the tool (UI shows human names; SKUs used for BOM)
 SKU = dict(
     # Readers
     AXON_READER="AXON-ATS1180",
@@ -123,7 +121,7 @@ SKU = dict(
     # DGP family
     ATS1201E="AXON-ATS1201E",   # 8 zones onboard; up to 32 I/O
     ATS1202="AXON-ATS1202",     # +8 zones per module on DGP
-    ATS1211E="AXON-ATS1211E",   # +8 I/O module on DGP (treated as +8 zones here if needed)
+    ATS1211E="AXON-ATS1211E",   # (not used directly here; 1202/1810/1811 handle adds)
 
     # Power / accessories
     ATS1330="AXON-ATS1330",
@@ -161,51 +159,53 @@ def validate_caps(doors, zones, outputs_total):
 def expand_outputs_on_panel(outputs_needed, queue):
     """
     Panel has 5 outputs onboard.
-    Then add, in order: ATS624 (+4), ATS1810 (+4), then repeat ATS1811 (+8) as needed.
+    Then: ATS624 (+4), ATS1810 (+4), then up to PANEL_1811_LIMIT × ATS1811 (+8 each).
+    Returns the remaining shortfall after panel expansions (>= 0).
     """
-    shortfall = max(0, outputs_needed - OUTPUTS_ONBOARD_PANEL)
-    if shortfall <= 0:
-        return
+    remaining = max(0, outputs_needed - OUTPUTS_ONBOARD_PANEL)
+    if remaining <= 0:
+        return 0
 
     # ATS624 (+4)
     add_bom_line(queue, SKU["ATS624"], 1)
-    shortfall -= 4
+    remaining -= 4
 
     # ATS1810 (+4)
-    if shortfall > 0:
+    if remaining > 0:
         add_bom_line(queue, SKU["ATS1810"], 1)
-        shortfall -= 4
+        remaining -= 4
 
-    # ATS1811 (+8) until done
-    while shortfall > 0:
+    # ATS1811 (+8) up to limit
+    count_1811 = 0
+    while remaining > 0 and count_1811 < PANEL_1811_LIMIT:
         add_bom_line(queue, SKU["ATS1811"], 1)
-        shortfall -= 8
+        remaining -= 8
+        count_1811 += 1
+
+    return max(0, remaining)
 
 def expand_zones_on_panel(zones_needed, queue):
     """
     Panel has 16 zones onboard.
-    If needed, add ATS608 (+8) once.
+    Add ATS608 (+8) once if zones exceed 16.
+    Returns remaining shortfall after panel-side zones.
     """
-    shortfall = max(0, zones_needed - ZONES_ONBOARD_PANEL)
-    if shortfall <= 0:
+    remaining = max(0, zones_needed - ZONES_ONBOARD_PANEL)
+    if remaining <= 0:
         return 0
-    # Add ATS608 once if there's any shortfall after the panel's 16
     add_bom_line(queue, SKU["ATS608"], 1)
-    return max(0, shortfall - 8)
+    remaining -= 8
+    return max(0, remaining)
 
 # -------------------- DGP expansions (correct 1201E behavior) --------------------
-def create_dgp_host():
-    """
-    A new ATS1201E host starts with 8 onboard zones already consuming I/O.
-    Track per-host I/O usage so we never exceed 32.
-    """
-    return {"sku": SKU["ATS1201E"], "io_used": 8, "zones_added": 8, "outs_added": 0, "mods": []}
-
 def ensure_host(hosts, queue):
+    """
+    Ensure there is a DGP host with free I/O.
+    A new ATS1201E host starts with 8 onboard zones already consuming I/O.
+    """
     if hosts and hosts[-1]["io_used"] < 32:
         return hosts[-1]
-    # start a new host
-    h = create_dgp_host()
+    h = {"sku": SKU["ATS1201E"], "io_used": 8, "zones_added": 8, "outs_added": 0, "mods": []}
     hosts.append(h)
     add_bom_line(queue, SKU["ATS1201E"], 1)
     return h
@@ -217,16 +217,13 @@ def place_zones_on_dgp(remaining_zones, hosts, queue):
     """
     while remaining_zones > 0:
         h = ensure_host(hosts, queue)
-        # how many I/O slots available on this host?
         space = 32 - h["io_used"]
         if space < 8:
-            # not enough room for another +8 zones here, start a new host
+            # start a new host
             h = ensure_host(hosts, queue)
             space = 32 - h["io_used"]
             if space < 8:
-                break  # defensive, shouldn't happen
-
-        # add a 1202 module (+8 zones)
+                break
         add_bom_line(queue, SKU["ATS1202"], 1)
         h["io_used"] += 8
         h["zones_added"] += 8
@@ -235,8 +232,8 @@ def place_zones_on_dgp(remaining_zones, hosts, queue):
 
 def place_outputs_on_dgp(remaining_outputs, hosts, queue):
     """
-    Put residual outputs on existing DGP hosts first (1811 preferred, then 1810),
-    respecting the 32 I/O cap per host. Create new hosts if needed.
+    Put residual outputs on existing/new DGP hosts (1811 preferred, then 1810),
+    respecting the 32 I/O cap per host.
     """
     while remaining_outputs > 0:
         # find a host with room; otherwise create one
@@ -250,7 +247,7 @@ def place_outputs_on_dgp(remaining_outputs, hosts, queue):
 
         space = 32 - target["io_used"]
 
-        # use an 1811 (+8 outputs) if we can
+        # try an 1811 (+8 outputs)
         if remaining_outputs >= 8 and space >= 8:
             add_bom_line(queue, SKU["ATS1811"], 1)
             target["io_used"] += 8
@@ -259,7 +256,7 @@ def place_outputs_on_dgp(remaining_outputs, hosts, queue):
             remaining_outputs -= 8
             continue
 
-        # else use an 1810 (+4)
+        # else try an 1810 (+4)
         if remaining_outputs >= 4 and space >= 4:
             add_bom_line(queue, SKU["ATS1810"], 1)
             target["io_used"] += 4
@@ -268,8 +265,8 @@ def place_outputs_on_dgp(remaining_outputs, hosts, queue):
             remaining_outputs -= 4
             continue
 
-        # if we can't fit here, force a new host
-        ensure_host(hosts, queue)
+        # no space here; add another host
+        target = ensure_host(hosts, queue)
 
 # =========================
 # Compact row helpers (Label | Value | Spacer)
@@ -316,7 +313,6 @@ with left_wide:
         # Mirror Door Outputs live into a disabled control
         st.session_state["door_outputs_display"] = int(doors)
         row_number("Door Outputs", "door_outputs_display", value=st.session_state["door_outputs_display"], disabled=True)
-
         siren_outputs = row_number("Siren Outputs", "siren_outputs", value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
         other_outputs  = row_number("Other Outputs",  "other_outputs",  value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
 
@@ -387,7 +383,7 @@ with act_cols[1]:
         st.experimental_rerun()
 
 # =========================
-# Build & Validate (includes corrected 1201E behavior)
+# Build & Validate (correct 1201E behavior)
 # =========================
 def build_bom(doors, zones, siren_outputs, other_outputs,
               readers, extra1125, touch1140, mod_4g, manual_1330,
@@ -400,42 +396,18 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
     q = []
 
     # ---- ZONES ----
-    # First use panel's 16, then panel plug-on ATS608 (+8) once if needed.
-    zones_remaining_after_panel = max(0, int(zones) - ZONES_ONBOARD_PANEL)
-    if zones_remaining_after_panel > 0:
-        zones_remaining_after_panel = max(0, zones_remaining_after_panel - 8)  # ATS608
-        add_bom_line(q, SKU["ATS608"], 1)
+    # Panel (16) + ATS608 (+8 once) if needed
+    zones_remaining_after_panel = expand_zones_on_panel(int(zones), q)
 
-    # If zones still remain, add DGP hosts (ATS1201E) and ATS1202 modules up to 32 I/O per host.
-  dgp_hosts = []
-place_zones_on_dgp(zones_remaining_after_panel, dgp_hosts, q)
-
-    # Use helper functions to actually place zones and outputs on DGPs
+    # If zones still remain, add DGP hosts and ATS1202 modules (up to 32 I/O per host)
     dgp_hosts = []
     place_zones_on_dgp(zones_remaining_after_panel, dgp_hosts, q)
 
     # ---- OUTPUTS ----
-    # First use panel outputs (5), then panel plug-ons ATS624 (+4), ATS1810 (+4), then ATS1811 (+8) as needed.
-    expand_outputs_on_panel(outputs_total, q)
+    # Panel outputs first (5 onboard, then 624, 1810, up to 4x 1811)
+    remaining_outputs_after_panel = expand_outputs_on_panel(outputs_total, q)
 
-    # Remaining outputs after panel-side expansions:
-    panel_added_out = 0
-    # compute how many outputs we provisioned on panel (approx): 5 onboard + 4 if 624 used + 4 if 1810 used + 8 per 1811 used.
-    # To avoid scanning q each time, simply compute residual by subtracting the theoretical panel capacity we added:
-    # Easier: recompute shortfall directly here, mirroring expand_outputs_on_panel ordering.
-    remaining_outputs = max(0, outputs_total - OUTPUTS_ONBOARD_PANEL)
-    tmp = remaining_outputs
-    if tmp > 0:
-        tmp -= 4  # ATS624
-    if tmp > 0:
-        tmp -= 4  # ATS1810
-    if tmp > 0:
-        # number of ATS1811 needed
-        counts_1811 = (tmp + 7) // 8
-        tmp -= counts_1811 * 8
-    remaining_outputs_after_panel = max(0, remaining_outputs - (remaining_outputs - tmp))
-
-    # Place any residual outputs onto DGPs (1811 preferred, then 1810) respecting 32 I/O cap/host.
+    # Any residual outputs go onto DGPs (1811 preferred, then 1810), respecting 32 I/O per host
     place_outputs_on_dgp(remaining_outputs_after_panel, dgp_hosts, q)
 
     # ---- READERS / KEYPADS / CREDENTIALS / OTHER ----
@@ -469,58 +441,6 @@ place_zones_on_dgp(zones_remaining_after_panel, dgp_hosts, q)
         "rows": q
     }
     return result, None
-
-# ---- DGP helpers (defined after build_bom so we can reuse NAME_MAP/SKU) ----
-def ensure_host(hosts, queue):
-    if hosts and hosts[-1]["io_used"] < 32:
-        return hosts[-1]
-    h = {"sku": SKU["ATS1201E"], "io_used": 8, "zones_added": 8, "outs_added": 0, "mods": []}
-    hosts.append(h)
-    add_bom_line(queue, SKU["ATS1201E"], 1)
-    return h
-
-def place_zones_on_dgp(remaining_zones, hosts, queue):
-    while remaining_zones > 0:
-        h = ensure_host(hosts, queue)
-        space = 32 - h["io_used"]
-        if space < 8:
-            # start a new host
-            h = ensure_host(hosts, queue)
-            space = 32 - h["io_used"]
-            if space < 8:
-                break
-        add_bom_line(queue, SKU["ATS1202"], 1)
-        h["io_used"] += 8
-        h["zones_added"] += 8
-        h["mods"].append(SKU["ATS1202"])
-        remaining_zones -= 8
-
-def place_outputs_on_dgp(remaining_outputs, hosts, queue):
-    while remaining_outputs > 0:
-        target = None
-        for h in hosts:
-            if h["io_used"] < 32:
-                target = h
-                break
-        if target is None:
-            target = ensure_host(hosts, queue)
-        space = 32 - target["io_used"]
-        if remaining_outputs >= 8 and space >= 8:
-            add_bom_line(queue, SKU["ATS1811"], 1)
-            target["io_used"] += 8
-            target["outs_added"] += 8
-            target["mods"].append(SKU["ATS1811"])
-            remaining_outputs -= 8
-            continue
-        if remaining_outputs >= 4 and space >= 4:
-            add_bom_line(queue, SKU["ATS1810"], 1)
-            target["io_used"] += 4
-            target["outs_added"] += 4
-            target["mods"].append(SKU["ATS1810"])
-            remaining_outputs -= 4
-            continue
-        # no space; add another host
-        ensure_host(hosts, queue)
 
 # =========================
 # Generate
@@ -574,4 +494,3 @@ else:
         f"System limits: Doors ≤ {DOOR_MAX}, Outputs ≤ {OUTPUT_MAX}, Zones ≤ {ZONE_MAX}. "
         "Door Outputs mirrors Doors."
     )
-
