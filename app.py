@@ -1,7 +1,10 @@
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 
-# -------------------- Page & style --------------------
+# =========================
+# Page setup & styling
+# =========================
 st.set_page_config(page_title="AXON BOM Generator (Web)", layout="wide")
 
 # Left-aligned rows: [Label | Value | Spacer], 5px gap. Compact 140px controls.
@@ -19,145 +22,199 @@ div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !import
 /* Label style (left aligned) */
 .axon-label { font-weight: 600; margin: 6px 0 2px 0; }
 
-/* Make number inputs compact and LEFT aligned; freeze width to ~140px */
+/* Number inputs: compact, LEFT aligned; fix width ~140px */
 div[data-testid="stNumberInput"] label { display: none; }
-div[data-testid="stNumberInput"] > div { width: 140px !important; }   /* container width */
+div[data-testid="stNumberInput"] > div { width: 140px !important; }   /* input container */
 div[data-testid="stNumberInput"] input {
   padding: 2px 6px; height: 30px; text-align: left;
 }
 
-/* Make selects compact and ~140px wide, left aligned */
+/* Selects compact, ~140px wide */
 div[data-baseweb="select"] { width: 140px !important; }
 div[data-baseweb="select"] > div { min-height: 30px; }
 div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; }
 
 /* Slim instruction text */
 .axon-instr { font-size: 0.9rem; line-height: 1.35; }
+
+/* Tiny info icon right after labels */
+.axon-info { cursor: help; font-weight: 700; margin-left: 6px; color: #666; }
+.axon-info:hover { color: #000; }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- System limits --------------------
+# =========================
+# System limits
+# =========================
 ZONES_ONBOARD = 16
 OUTPUTS_ONBOARD = 5
-DOOR_MAX    = 56
-OUTPUT_MAX  = 128     # Doors + Sirens + Other
-ZONE_MAX    = 256
+DOOR_MAX   = 56
+OUTPUT_MAX = 128   # Doors + Sirens + Other
+ZONE_MAX   = 256
 
-# -------------------- Catalogue-accurate SKU -> Name map --------------------
-NAME_MAP = {
- 'AXON-256AU': 'AXON 256 Access Control Panel',
- 'AXON-ATS1125': 'AXON LCD Keypad with Mifare Reader',
- 'AXON-ATS1140': 'AXON Touchscreen Keypad with Mifare Reader',
- 'AXON-ATS1180': 'AXON Secure Mifare Reader',
- 'AXON-ATS1181': 'AXON Secure Mifare Reader with Keypad',
- 'AXON-ATS1201E': 'AXON 8-Zone Input Expander',
- 'AXON-ATS1202': 'AXON 8 Input Expander',
- 'AXON-ATS1211E': '8 Input/Output DGP Expander + Metal Housing',
- 'AXON-ATS1330': 'Axon Power Distribution Board',
- 'AXON-ATS1453-5PACK': 'AXON Tear Keytag, DESFire EV2/3 2K, 5 Pack',
- 'AXON-ATS1455-10PACK': 'AXON ISO Card, DESFire EV2/3 2K, 10 Pack',
- 'AXON-ATS1810': 'Axon 4 Way Relay Card',
- 'AXON-ATS1811': 'Axon 8 Way Relay Card',
- 'AXON-ATS608': 'Axon Plug-on Input Expander',
- 'AXON-ATS624': 'Axon Plug-on 4 Way Output Expander',
- 'AXON-ATS7341': 'AXON 4G Module with UltraSync SIM',
- 'AXON-CDC4-AU': 'AXON Intelligent 4 Door / Lift Controller',
- 'HID-20KNKS-01': 'HID Signo 20 Keypad Reader, Seos Profile',
- 'HID-20KNKS-02': 'HID Signo 20 Keypad Reader, Smart Profile',
- 'HID-20NKS-01': 'HID Signo 20 Slim Reader, Seos Profile',
- 'HID-20NKS-02': 'HID Signo 20 Slim Reader, Smart Profile',
- 'HID-SEOS-ISO': 'HID Seos ISO Cards',
- 'HID-SEOS-KEYTAG': 'HID Seos Keytags'
-}
+# =========================
+# Catalogue loading (Excel)
+# =========================
+def load_catalogue():
+    """
+    Loads Axon_Configurator_Catalog.xlsx and returns a dict {SKU: Name}.
+    Fails closed: if a required SKU is missing from the sheet, we won't include it in the BOM.
+    """
+    # Try local file first (same folder as app)
+    local = Path(__file__).parent / "Axon_Configurator_Catalog.xlsx"
+    fallback = Path("/mnt/data/Axon_Configurator_Catalog.xlsx")  # for local testing
+    xls_path = local if local.exists() else fallback
 
-def label_sku(sku: str) -> str:
-    return f"{sku} \u2013 {NAME_MAP.get(sku, sku)}"
+    df = pd.read_excel(xls_path, sheet_name="Catalog")
+    df.columns = [str(c).strip() for c in df.columns]
+    if "SKU" not in df.columns or "Name" not in df.columns:
+        raise RuntimeError("Catalogue must have columns: 'SKU' and 'Name' on sheet 'Catalog'.")
 
-DGP_ZONE_CAP = 32
-DGP_OUTPUT_CAP = {"AXON-ATS1201E": 16}
+    df = df[["SKU","Name"]].dropna().drop_duplicates(subset=["SKU"], keep="first")
+    return dict(zip(df["SKU"].astype(str), df["Name"].astype(str)))
 
-# -------------------- Helpers --------------------
-def add_item(q, sku, qty=1):
-    if qty <= 0: return
-    name = NAME_MAP.get(sku, sku)
-    for row in q:
+# Load once
+try:
+    NAME_MAP = load_catalogue()
+except Exception as e:
+    st.error(f"Failed to load catalogue Excel: {e}")
+    NAME_MAP = {}  # hard fail closed
+
+def get_name(sku: str) -> str:
+    """Return official Name for SKU from the catalogue."""
+    return NAME_MAP.get(sku, "")
+
+# =========================
+# SKUs used by the tool
+# (UI labels will be clean names only; SKUs are for BOM & logic)
+# =========================
+SKU = dict(
+    # Readers
+    AXON_READER="AXON-ATS1180",
+    AXON_KEYPAD_READER="AXON-ATS1181",
+    HID_SEOS_SLIM="HID-20NKS-01",
+    HID_SMART_SLIM="HID-20NKS-02",
+    HID_SEOS_KP="HID-20KNKS-01",
+    HID_SMART_KP="HID-20KNKS-02",
+
+    # Keypads & comms
+    ATS1125="AXON-ATS1125",
+    ATS1140="AXON-ATS1140",
+    MOD_4G="AXON-ATS7341",
+
+    # Outputs
+    ATS624="AXON-ATS624",
+    ATS1810="AXON-ATS1810",
+    ATS1811="AXON-ATS1811",
+
+    # Zones (note: distribution logic below is conservative)
+    ATS608="AXON-ATS608",
+    ATS1201E="AXON-ATS1201E",
+    ATS1202="AXON-ATS1202",
+    ATS1211E="AXON-ATS1211E",
+
+    # Power / accessories
+    ATS1330="AXON-ATS1330",
+
+    # Credentials
+    AXON_ISO_10="AXON-ATS1455-10PACK",
+    AXON_TAG_5="AXON-ATS1453-5PACK",
+    HID_SEOS_ISO="HID-SEOS-ISO",
+    HID_SEOS_TAG="HID-SEOS-KEYTAG",
+)
+
+# =========================
+# Helpers
+# =========================
+def add_item(queue, sku, qty=1):
+    """
+    Add line to BOM only if SKU exists in the loaded catalogue.
+    Ensures Names are 100% from Excel.
+    """
+    if qty <= 0:
+        return
+    name = get_name(sku)
+    if not name:
+        # Silently skip unknown SKUs to guarantee catalogue accuracy
+        return
+    for row in queue:
         if row[0] == sku:
             row[2] += qty
             return
-    q.append([sku, name, qty])
-
-def distribute_zones_to_panel_and_dgps(zones_needed, notes):
-    panel_zones = ZONES_ONBOARD
-    rs485_devices = 0
-    cdc4_count = 0
-    remaining = max(0, zones_needed - panel_zones)
-
-    panel_1811 = 0
-    while remaining > 0 and panel_1811 < 4:
-        panel_zones += 8; panel_1811 += 1; remaining -= 8
-        add_item(notes["queue"], "AXON-ATS1811", 1); rs485_devices += 1; notes["panel_1811"] += 1
-
-    while remaining > 0:
-        add_item(notes["queue"], "AXON-ATS1201E", 1); rs485_devices += 1
-        take = min(remaining, DGP_ZONE_CAP); remaining -= take
-        extra = max(0, take - ZONES_ONBOARD)
-        while extra > 0:
-            add_item(notes["queue"], "AXON-ATS1801", 1); rs485_devices += 1; notes["dgp_1801"] += 1
-            extra -= 8
-    return panel_zones, rs485_devices, cdc4_count
-
-def expand_outputs_on_panel(outputs_needed, notes):
-    added = 0; rs485 = 0
-    shortfall = max(0, outputs_needed - OUTPUTS_ONBOARD)
-    if shortfall <= 0: return added, rs485
-    add_item(notes["queue"], "AXON-ATS624", 1); shortfall -= 4; added += 4
-    if shortfall > 0:
-        add_item(notes["queue"], "AXON-ATS1810", 1); shortfall -= 4; added += 4
-        rs485 += 1; notes["panel_1810"] += 1
-    while shortfall > 0 and notes["panel_1811"] < 4:
-        add_item(notes["queue"], "AXON-ATS1811", 1); shortfall -= 8; added += 8
-        rs485 += 1; notes["panel_1811"] += 1
-    return added, rs485
-
-def place_remaining_outputs_on_dgp(shortfall, notes):
-    if shortfall <= 0: return 0, 0
-    rs485 = 0; added = 0; hosts = []; q = notes["queue"]
-    def ensure_host():
-        for h in hosts:
-            if h["remaining_out"] > 0: return h
-        add_item(q, "AXON-ATS1201E", 1); notes["dgp_added_for_outputs"] = True
-        new_h = {"sku": "AXON-ATS1201E", "remaining_out": DGP_OUTPUT_CAP["AXON-ATS1201E"]}
-        hosts.append(new_h); return new_h
-    while shortfall > 0:
-        h = ensure_host()
-        if shortfall == 4 and h["remaining_out"] >= 4:
-            add_item(q, "AXON-ATS1810", 1); notes["dgp_1810"] += 1
-            shortfall -= 4; added += 4; h["remaining_out"] -= 4; continue
-        if h["remaining_out"] >= 8 and shortfall >= 8:
-            add_item(q, "AXON-ATS1811", 1); notes["dgp_1811"] += 1
-            shortfall -= 8; added += 8; h["remaining_out"] -= 8; continue
-        if h["remaining_out"] >= 4:
-            add_item(q, "AXON-ATS1810", 1); notes["dgp_1810"] += 1
-            shortfall -= 4; added += 4; h["remaining_out"] -= 4; continue
-        hosts.append({"sku": "AXON-ATS1201E", "remaining_out": DGP_OUTPUT_CAP["AXON-ATS1201E"]})
-        add_item(q, "AXON-ATS1201E", 1); notes["dgp_added_for_outputs"] = True
-    rs485 = sum(1 for s,_,_ in q if s in ("AXON-ATS1201E","AXON-ATS1810","AXON-ATS1811"))
-    return added, rs485
+    queue.append([sku, name, qty])
 
 def validate_caps(doors, zones, outputs_total):
     errs = []
-    if doors > DOOR_MAX: errs.append(f"Doors cannot exceed {DOOR_MAX} (system limit).")
-    if outputs_total > OUTPUT_MAX: errs.append(f"Total Outputs cannot exceed {OUTPUT_MAX} (system limit).")
-    if zones > ZONE_MAX: errs.append(f"Zones cannot exceed {ZONE_MAX} (system limit).")
+    if doors > DOOR_MAX: errs.append(f"Doors cannot exceed {DOOR_MAX}.")
+    if outputs_total > OUTPUT_MAX: errs.append(f"Total Outputs (Doors + Sirens + Other) cannot exceed {OUTPUT_MAX}.")
+    if zones > ZONE_MAX: errs.append(f"Zones cannot exceed {ZONE_MAX}.")
     if min(doors, zones, outputs_total) < 0: errs.append("Inputs must be non-negative integers.")
     return errs
 
-# ---------- Row helpers: [Label | Value | Spacer] ----------
-def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, help_text=None):
-    # label | value (140px) | spacer
+# -------------------- Output expansion (conservative, matches available parts) --------------------
+def expand_outputs(outputs_needed, queue):
+    """
+    Panel has 5 outputs onboard.
+    Then: + ATS624 (+4), + ATS1810 (+4), then multiple ATS1811 (+8).
+    """
+    shortfall = max(0, outputs_needed - OUTPUTS_ONBOARD)
+    if shortfall <= 0:
+        return
+
+    # ATS624 (+4)
+    add_item(queue, SKU["ATS624"], 1)
+    shortfall -= 4
+
+    # ATS1810 (+4) if still needed
+    if shortfall > 0:
+        add_item(queue, SKU["ATS1810"], 1)
+        shortfall -= 4
+
+    # ATS1811 (+8) while needed
+    while shortfall > 0:
+        add_item(queue, SKU["ATS1811"], 1)
+        shortfall -= 8
+
+# -------------------- Zone expansion (conservative, simple) --------------------
+def expand_zones(zones_needed, queue):
+    """
+    Panel has 16 onboard zones. Add expansions in +8 blocks using available parts.
+    Order: ATS608 (plug-on +8) once, then ATS1211E (+8) / ATS1202 (+8) behind ATS1201E host as needed.
+    This is intentionally conservative and does not over-prescribe topology.
+    """
+    remaining = max(0, zones_needed - ZONES_ONBOARD)
+    if remaining <= 0:
+        return
+
+    # First, one ATS608 plug-on (+8)
+    if remaining > 0:
+        add_item(queue, SKU["ATS608"], 1)
+        remaining -= 8
+
+    # Then add DGP-based blocks of +8. We add a host (1201E) the first time we need DGP-based inputs.
+    host_added = False
+    while remaining > 0:
+        if not host_added:
+            add_item(queue, SKU["ATS1201E"], 1)
+            host_added = True
+        # Prefer 1211E (+8). If it's missing in catalogue, fall back to 1202 (+8).
+        if get_name(SKU["ATS1211E"]):
+            add_item(queue, SKU["ATS1211E"], 1)
+        else:
+            add_item(queue, SKU["ATS1202"], 1)
+        remaining -= 8
+
+# =========================
+# Compact row helpers (Label | Value | Spacer)
+# =========================
+def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, help_text=None, info_text=None):
     c1, c2, _ = st.columns([0.48, 0.16, 0.36])
     with c1:
-        st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
+        if info_text:
+            st.markdown(f"<div class='axon-label'>{label}<span class='axon-info' title='{info_text}'>ⓘ</span></div>",
+                        unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
     with c2:
         return st.number_input(
             label="", key=key, min_value=minv, max_value=maxv, value=value, step=step,
@@ -169,9 +226,12 @@ def row_select(label, key, options, index=0, help_text=None):
     with c1:
         st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
     with c2:
-        return st.selectbox(label="", key=key, options=options, index=index, help=help_text, label_visibility="collapsed")
+        return st.selectbox(label="", key=key, options=options, index=index,
+                            help=help_text, label_visibility="collapsed")
 
-# -------------------- Layout --------------------
+# =========================
+# Layout
+# =========================
 left_wide, right_slim = st.columns([4, 1])
 
 with left_wide:
@@ -186,39 +246,39 @@ with left_wide:
         doors = row_number("Doors", "doors", value=0, maxv=DOOR_MAX, help_text=f"Max {DOOR_MAX}")
         zones = row_number("Zones", "zones", value=0, maxv=ZONE_MAX, help_text=f"Max {ZONE_MAX}")
 
-        # Outputs; Door Outputs mirrors Doors live (read-only)
+        # Outputs (Door Outputs mirrors Doors)
         row_number("Door Outputs", "door_outputs_display", value=int(doors), disabled=True)
         siren_outputs = row_number("Siren Outputs", "siren_outputs", value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
         other_outputs  = row_number("Other Outputs",  "other_outputs",  value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
 
-        # Lift toggle
+        # Lift toggle (no CDC4 option shown at this stage, per instruction)
         lift_choice = row_select("Lift Control", "lift_choice", ["No", "Yes"], index=0)
 
-        # Readers (SKUs & Names from catalogue)
+        # Readers (clean labels — no SKUs in UI)
         st.markdown("---"); st.markdown("**Readers**")
-        axon1180 = row_number(label_sku("AXON-ATS1180"), "axon1180", value=0)
-        axon1181 = row_number(label_sku("AXON-ATS1181"), "axon1181", value=0)
-        hid20_seos = row_number(label_sku("HID-20NKS-01"), "hid_seos", value=0)
-        hid20_smart = row_number(label_sku("HID-20NKS-02"), "hid_smart", value=0)
-        hid20_seos_kp = row_number(label_sku("HID-20KNKS-01"), "hid_seos_kp", value=0)
-        hid20_smart_kp = row_number(label_sku("HID-20KNKS-02"), "hid_smart_kp", value=0)
+        axon1180 = row_number("AXON Reader", "axon1180", value=0)
+        axon1181 = row_number("AXON Keypad Reader", "axon1181", value=0)
+        hid20_seos = row_number("HID Seos Reader", "hid_seos", value=0)
+        hid20_smart = row_number("HID Smart Reader", "hid_smart", value=0)
+        hid20_seos_kp = row_number("HID Seos Keypad Reader", "hid_seos_kp", value=0)
+        hid20_smart_kp = row_number("HID Smart Keypad Reader", "hid_smart_kp", value=0)
 
-        # Keypads & Options
+        # Keypads & Options (ATS1125 tooltip restored)
         st.markdown("---"); st.markdown("**Keypads & Options**")
         extra1125 = row_number(
-            f"{label_sku('AXON-ATS1125')} (additional)",
-            "extra1125", value=0
+            "Additional ATS1125 LCD Keypad", "extra1125", value=0,
+            info_text="1x ATS1125 Keypad is automatically included in the BOM, leave blank if no additional keypads are required"
         )
-        touch1140 = row_number(label_sku("AXON-ATS1140"), "touch1140", value=0)
-        mod_4g = row_select(label_sku("AXON-ATS7341"), "mod_4g", ["No", "Yes"], index=0)
-        manual_1330 = row_number(label_sku("AXON-ATS1330"), "manual_1330", value=0)
+        touch1140 = row_number("ATS1140 Touchscreen Keypad", "touch1140", value=0)
+        mod_4g = row_select("4G Module Required", "mod_4g", ["No", "Yes"], index=0)
+        manual_1330 = row_number("AXON Power Distribution Board", "manual_1330", value=0)
 
         # Credentials
         st.markdown("---"); st.markdown("**Credentials**")
-        cred_iso_pack   = row_number(label_sku("AXON-ATS1455-10PACK"), "cred_iso_pack", value=0)
-        cred_tag_pack   = row_number(label_sku("AXON-ATS1453-5PACK"), "cred_tag_pack", value=0)
-        hid_seos_iso    = row_number(label_sku("HID-SEOS-ISO"), "hid_seos_iso", value=0)
-        hid_seos_keytag = row_number(label_sku("HID-SEOS-KEYTAG"), "hid_seos_keytag", value=0)
+        cred_iso_pack   = row_number("AXON ISO Cards - 10 Pack", "cred_iso_pack", value=0)
+        cred_tag_pack   = row_number("AXON Keytags - 5 Pack",  "cred_tag_pack", value=0)
+        hid_seos_iso    = row_number("HID Seos ISO Cards",     "hid_seos_iso", value=0)
+        hid_seos_keytag = row_number("HID Seos Keytags",       "hid_seos_keytag", value=0)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -240,11 +300,14 @@ with right_slim:
         "- **Door Outputs** mirrors **Doors** automatically.\n"
         "- Set **Lift Control** to **Yes** to configure **Lifts/Levels**.\n"
         "- Click **Generate BOM** to build the parts list and totals.\n"
-        "- Use **Download CSV** to export."
+        "- Use **Download CSV** to export.\n"
+        "- BOM Names and SKUs come **directly from your catalogue Excel**."
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-# -------------------- Actions --------------------
+# =========================
+# Actions
+# =========================
 act_cols = st.columns([1, 1, 6])
 with act_cols[0]:
     generate = st.button("Generate BOM", type="primary")
@@ -254,53 +317,62 @@ with act_cols[1]:
             del st.session_state[k]
         st.experimental_rerun()
 
-# -------------------- Build & Validate --------------------
+# =========================
+# Build & Validate
+# =========================
 def build_bom(doors, zones, siren_outputs, other_outputs,
               readers, extra1125, touch1140, mod_4g, manual_1330,
               cred_iso_pack, cred_tag_pack, hid_seos_iso, hid_seos_keytag):
     outputs_total = int(doors) + int(siren_outputs) + int(other_outputs)
     errors = validate_caps(int(doors), int(zones), outputs_total)
-    if errors: return None, errors
+    if errors:
+        return None, errors
 
     q = []
-    notes = {"queue": q, "panel_1811": 0, "panel_1810": 0,
-             "dgp_1811": 0, "dgp_1810": 0, "dgp_1801": 0, "dgp_added_for_outputs": False}
 
-    zones_total, rs485_z, cdc4 = distribute_zones_to_panel_and_dgps(int(zones), notes)
-    added_panel_out, rs485_out_panel = expand_outputs_on_panel(outputs_total, notes)
-    remaining_outputs = max(0, outputs_total - OUTPUTS_ONBOARD - added_panel_out)
-    _, rs485_out_dgp = place_remaining_outputs_on_dgp(remaining_outputs, notes)
+    # Zones expansion
+    expand_zones(int(zones), q)
 
-    # Readers (catalogue-accurate SKUs)
-    add_item(q, "AXON-ATS1180", int(readers["axon1180"]))
-    add_item(q, "AXON-ATS1181", int(readers["axon1181"]))
-    add_item(q, "HID-20NKS-01", int(readers["hid20_seos"]))
-    add_item(q, "HID-20NKS-02", int(readers["hid20_smart"]))
-    add_item(q, "HID-20KNKS-01", int(readers["hid20_seos_kp"]))
-    add_item(q, "HID-20KNKS-02", int(readers["hid20_smart_kp"]))
+    # Outputs expansion
+    expand_outputs(outputs_total, q)
+
+    # Readers
+    add_item(q, SKU["AXON_READER"],       int(readers["axon1180"]))
+    add_item(q, SKU["AXON_KEYPAD_READER"],int(readers["axon1181"]))
+    add_item(q, SKU["HID_SEOS_SLIM"],     int(readers["hid20_seos"]))
+    add_item(q, SKU["HID_SMART_SLIM"],    int(readers["hid20_smart"]))
+    add_item(q, SKU["HID_SEOS_KP"],       int(readers["hid20_seos_kp"]))
+    add_item(q, SKU["HID_SMART_KP"],      int(readers["hid20_smart_kp"]))
 
     # Keypads & Options
-    add_item(q, "AXON-ATS1125", 1 + int(extra1125))  # 1 included + extras
-    add_item(q, "AXON-ATS1140", int(touch1140))
-    if mod_4g == "Yes": add_item(q, "AXON-ATS7341", 1)
+    # Always include 1x ATS1125 (required for setup), plus any additional entered
+    include_1125 = 1 + int(extra1125)
+    add_item(q, SKU["ATS1125"], include_1125)
+    add_item(q, SKU["ATS1140"], int(touch1140))
+    if mod_4g == "Yes":
+        add_item(q, SKU["MOD_4G"], 1)
 
     # Credentials
-    add_item(q, "AXON-ATS1455-10PACK", int(cred_iso_pack))
-    add_item(q, "AXON-ATS1453-5PACK",  int(cred_tag_pack))
-    add_item(q, "HID-SEOS-ISO",        int(hid_seos_iso))
-    add_item(q, "HID-SEOS-KEYTAG",     int(hid_seos_keytag))
+    add_item(q, SKU["AXON_ISO_10"],   int(cred_iso_pack))
+    add_item(q, SKU["AXON_TAG_5"],    int(cred_tag_pack))
+    add_item(q, SKU["HID_SEOS_ISO"],  int(hid_seos_iso))
+    add_item(q, SKU["HID_SEOS_TAG"],  int(hid_seos_keytag))
 
-    # Manual Power Distribution Board
-    add_item(q, "AXON-ATS1330", int(manual_1330))
+    # Manual PDB (Power Distribution Board)
+    add_item(q, SKU["ATS1330"], int(manual_1330))
 
-    rs485 = rs485_z + rs485_out_panel + rs485_out_dgp
-    rs485 += sum([int(readers["axon1180"]), int(readers["axon1181"]),
-                  int(readers["hid20_seos"]), int(readers["hid20_smart"]),
-                  int(readers["hid20_seos_kp"]), int(readers["hid20_smart_kp"])])
-    return {"zones_total": zones_total, "outputs_total": outputs_total, "doors_total": int(doors),
-            "rs485": rs485, "cdc4": 0, "rows": q}, None
+    # Summary (totals shown are the requested values)
+    result = {
+        "zones_total": int(zones),
+        "outputs_total": outputs_total,
+        "doors_total": int(doors),
+        "rows": q
+    }
+    return result, None
 
-# -------------------- Generate --------------------
+# =========================
+# Generate
+# =========================
 if generate:
     readers = {
         "axon1180":     st.session_state.get("axon1180", 0),
@@ -310,6 +382,7 @@ if generate:
         "hid20_seos_kp":st.session_state.get("hid_seos_kp", 0),
         "hid20_smart_kp":st.session_state.get("hid_smart_kp", 0),
     }
+
     result, errors = build_bom(
         doors=st.session_state.get("doors", 0),
         zones=st.session_state.get("zones", 0),
@@ -325,25 +398,27 @@ if generate:
         hid_seos_iso=st.session_state.get("hid_seos_iso", 0),
         hid_seos_keytag=st.session_state.get("hid_seos_keytag", 0),
     )
+
     if errors:
         for e in errors: st.error(e)
         st.stop()
 
-    # Summary
+    # ---- Summary strip ----
     st.markdown("#### Summary")
-    s1, s2, s3, s4, s5 = st.columns([1.2, 1, 1, 1, 1])
-    s1.metric("RS-485 Device Count", result["rs485"])
-    s2.metric("CDC4 Added", result["cdc4"])
-    s3.metric("Zones Total", result["zones_total"])
-    s4.metric("Outputs Total", result["outputs_total"])
-    s5.metric("Doors Total", result["doors_total"])
+    s1, s2, s3 = st.columns([1, 1, 1])
+    s1.metric("Zones Total", result["zones_total"])
+    s2.metric("Outputs Total", result["outputs_total"])
+    s3.metric("Doors Total", result["doors_total"])
 
-    # BOM
+    # ---- BOM ----
     st.markdown("#### BOM (SKU / Name / Qty)")
     df = pd.DataFrame(result["rows"], columns=["SKU", "Name", "Qty"]).sort_values(by=["SKU"])
-    st.dataframe(df, use_container_width=True, hide_index=True, height=320)
-    st.download_button("Download CSV", data=df.to_csv(index=False).encode("utf-8"),
-                       file_name="AXON_BOM.csv", mime="text/csv")
+    st.dataframe(df, use_container_width=True, hide_index=True, height=340)
+
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button("Download CSV", data=csv, file_name="AXON_BOM.csv", mime="text/csv")
 else:
-    st.info(f"System limits: Doors ≤ {DOOR_MAX}, Outputs ≤ {OUTPUT_MAX}, Zones ≤ {ZONE_MAX}. "
-            "Door Outputs mirrors Doors. Set Lift Control to Yes to configure Lifts/Levels.")
+    st.info(
+        f"System limits: Doors ≤ {DOOR_MAX}, Outputs ≤ {OUTPUT_MAX}, Zones ≤ {ZONE_MAX}. "
+        "Door Outputs mirrors Doors."
+    )
