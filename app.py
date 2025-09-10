@@ -4,32 +4,32 @@ import pandas as pd
 # -------------------- Page & style --------------------
 st.set_page_config(page_title="AXON BOM Generator (Web)", layout="wide")
 
-# Ultra-tight alignment: tiny gaps & narrow input column (labels + inputs very close)
+# Ultra-tight alignment: zero inter-column gap, labels right-aligned, narrow input column
 st.markdown("""
 <style>
 .main .block-container { max-width: 1200px; padding-top: 10px; padding-bottom: 8px; }
 
-/* Generic card */
+/* Card styling */
 .card { border: 1px solid #e6e6e6; border-radius: 10px; padding: 10px 12px; background: #fafafa; }
 
-/* Kill column padding and shrink inter-column gap so fields are right next to labels */
-div[data-testid="stHorizontalBlock"] { gap: 4px !important; }
+/* Remove gaps between Streamlit columns so inputs sit right next to labels */
+div[data-testid="stHorizontalBlock"] { gap: 0px !important; }
 div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !important; }
 
-/* Label look */
-.axon-label { font-weight: 600; margin: 4px 0 0 0; line-height: 1.15; }
+/* Label look: right-align so the text hugs the input column */
+.axon-label { font-weight: 600; margin: 4px 0 0 0; line-height: 1.15; text-align: right; }
 
 /* Info icon next to labels */
 .axon-info { cursor: help; font-weight: 700; margin-left: 6px; color: #666; }
 .axon-info:hover { color: #000; }
 
-/* Shrink number inputs and hide their internal labels (we render our own) */
+/* Number inputs: compact and right-aligned text */
 div[data-testid="stNumberInput"] label { display: none; }
 div[data-testid="stNumberInput"] input {
   padding: 2px 6px; height: 30px; text-align: right;
 }
 
-/* Selectbox tidy */
+/* Selectbox compact height */
 div[data-baseweb="select"] > div { min-height: 30px; }
 div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; }
 
@@ -38,10 +38,13 @@ div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; 
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- Constants --------------------
+# -------------------- Constants (System Limits) --------------------
 ZONES_ONBOARD = 16
 OUTPUTS_ONBOARD = 5
-ZONE_MAX = 256  # AXON-256AU panel capacity
+
+DOOR_MAX    = 56
+OUTPUT_MAX  = 128          # Doors + Sirens + Other
+ZONE_MAX    = 256          # AXON-256AU
 
 NAME_MAP = {
     "AXON-ATS1201E": "AXON DGP Host (32 Zones max / 16 Outputs max)",
@@ -163,15 +166,20 @@ def place_remaining_outputs_on_dgp(shortfall, notes):
     rs485 = sum(1 for s,_,_ in q if s in ("AXON-ATS1201E","AXON-ATS1810","AXON-ATS1811"))
     return added, rs485
 
+# -------------------- Validation (System Limits) --------------------
 def validate_caps(doors, zones, outputs_total):
     errs = []
+    if doors > DOOR_MAX:
+        errs.append(f"Doors cannot exceed {DOOR_MAX} (system limit).")
+    if outputs_total > OUTPUT_MAX:
+        errs.append(f"Total Outputs (Doors + Sirens + Other) cannot exceed {OUTPUT_MAX} (system limit).")
     if zones > ZONE_MAX:
-        errs.append(f"Zones cannot exceed {ZONE_MAX}.")
-    if doors < 0 or zones < 0 or outputs_total < 0:
+        errs.append(f"Zones cannot exceed {ZONE_MAX} (system limit).")
+    if min(doors, zones, outputs_total) < 0:
         errs.append("Inputs must be non-negative integers.")
     return errs
 
-# ---- compact row helpers (label left, tiny gap, 80/20 split) ----
+# ---- compact row helpers (label left, ultra-narrow input right) ----
 def row_label(label, info_text=None):
     if info_text:
         st.markdown(
@@ -182,7 +190,8 @@ def row_label(label, info_text=None):
         st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
 
 def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, help_text=None, info_text=None):
-    left, right = st.columns([0.80, 0.20])  # very narrow right column = input sits right next to label
+    # 88/12 split makes the input column very narrow so it sits right by the label edge
+    left, right = st.columns([0.88, 0.12])
     with left:
         row_label(label, info_text=info_text)
     with right:
@@ -193,18 +202,16 @@ def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, h
         )
 
 def row_select(label, key, options, index=0, help_text=None):
-    left, right = st.columns([0.80, 0.20])
+    left, right = st.columns([0.88, 0.12])
     with left:
         row_label(label)
     with right:
         return st.selectbox(label="", key=key, options=options, index=index, help=help_text, label_visibility="collapsed")
 
 # -------------------- Layout --------------------
-# Page = [ LeftWide (Inputs + Lift card) | RightSlim (Instructions) ]
 left_wide, right_slim = st.columns([4, 1])
 
 with left_wide:
-    # Two columns: Inputs (left) and Lift card (right)
     inputs_col, lift_col = st.columns([2, 1])
 
     with inputs_col:
@@ -213,20 +220,19 @@ with left_wide:
 
         # System
         st.markdown("**System**")
-        doors = row_number("Doors", "doors", value=0)
-        zones = row_number("Zones", "zones", value=0, maxv=ZONE_MAX, help_text=f"Max {ZONE_MAX} (AXON panel capacity)")
+        doors = row_number("Doors", "doors", value=0, maxv=DOOR_MAX, help_text=f"Max {DOOR_MAX}")
+        zones = row_number("Zones", "zones", value=0, maxv=ZONE_MAX, help_text=f"Max {ZONE_MAX}")
 
-        # Outputs; Door Outputs mirrors Doors live (disabled display)
+        # Outputs; Door Outputs mirrors Doors live (read-only)
         row_number("Door Outputs", "door_outputs_display", value=int(doors), disabled=True)
-        siren_outputs = row_number("Siren Outputs", "siren_outputs", value=0)
-        other_outputs  = row_number("Other Outputs",  "other_outputs",  value=0)
+        siren_outputs = row_number("Siren Outputs", "siren_outputs", value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
+        other_outputs  = row_number("Other Outputs",  "other_outputs",  value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
 
         # Lift toggle
         lift_choice = row_select("Lift Control", "lift_choice", ["No", "Yes"], index=0)
 
-        # Readers (updated UI names)
-        st.markdown("---")
-        st.markdown("**Readers**")
+        # Readers
+        st.markdown("---"); st.markdown("**Readers**")
         axon1180 = row_number("AXON Reader", "axon1180", value=0)
         axon1181 = row_number("AXON Keypad Reader", "axon1181", value=0)
         hid20_seos = row_number("HID Seos Reader", "hid_seos", value=0)
@@ -235,8 +241,7 @@ with left_wide:
         hid20_smart_kp = row_number("HID Smart Keypad Reader", "hid_smart_kp", value=0)
 
         # Keypads & Options
-        st.markdown("---")
-        st.markdown("**Keypads & Options**")
+        st.markdown("---"); st.markdown("**Keypads & Options**")
         extra1125 = row_number(
             "Additional ATS1125 LCD Keypad", "extra1125", value=0,
             info_text="1x ATS1125 Automatically included in BOM, leave blank unless you require more than 1"
@@ -245,9 +250,8 @@ with left_wide:
         mod_4g = row_select("4G Module Required", "mod_4g", ["No", "Yes"], index=0)
         manual_1330 = row_number("AXON-ATS1330 - BUS Distributor", "manual_1330", value=0)
 
-        # Credentials (updated + added HID Seos items)
-        st.markdown("---")
-        st.markdown("**Credentials**")
+        # Credentials
+        st.markdown("---"); st.markdown("**Credentials**")
         cred_iso_pack   = row_number("AXON ISO Cards - 10 Pack", "cred_iso_pack", value=0)
         cred_tag_pack   = row_number("AXON Keytags - 5 Pack",  "cred_tag_pack", value=0)
         hid_seos_iso    = row_number("HID Seos ISO Cards",     "hid_seos_iso", value=0)
@@ -255,7 +259,6 @@ with left_wide:
 
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Lift card (appears immediately when Yes) — sits RIGHT NEXT to Inputs
     with lift_col:
         if lift_choice == "Yes":
             st.markdown("#### Lift Control")
@@ -270,7 +273,7 @@ with right_slim:
     st.markdown("#### Instructions")
     st.markdown("<div class='card axon-instr'>", unsafe_allow_html=True)
     st.markdown(
-        "- Enter **Doors / Zones / Outputs**.\n"
+        f"- **Limits:** Doors ≤ {DOOR_MAX}, Outputs ≤ {OUTPUT_MAX}, Zones ≤ {ZONE_MAX}.\n"
         "- **Door Outputs** mirrors **Doors** automatically.\n"
         "- Set **Lift Control** to **Yes** to configure **Lifts/Levels**.\n"
         "- Click **Generate BOM** to build the parts list and totals.\n"
@@ -398,5 +401,5 @@ if generate:
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("Download CSV", data=csv, file_name="AXON_BOM.csv", mime="text/csv")
 else:
-    st.info("Adjust inputs, then click **Generate BOM**. "
-            "Door Outputs mirrors Doors live. Zones are capped at 256.")
+    st.info(f"System limits: Doors ≤ {DOOR_MAX}, Outputs ≤ {OUTPUT_MAX}, Zones ≤ {ZONE_MAX}. "
+            "Door Outputs mirrors Doors. Set Lift Control to Yes to configure Lifts/Levels.")
