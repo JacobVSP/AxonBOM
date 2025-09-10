@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 
 # =========================
 # Page setup & styling
@@ -46,47 +45,60 @@ div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; 
 # =========================
 # System limits
 # =========================
-ZONES_ONBOARD = 16
-OUTPUTS_ONBOARD = 5
+ZONES_ONBOARD_PANEL = 16
+OUTPUTS_ONBOARD_PANEL = 5
 DOOR_MAX   = 56
 OUTPUT_MAX = 128   # Doors + Sirens + Other
 ZONE_MAX   = 256
 
 # =========================
-# Catalogue loading (Excel)
+# Embedded catalogue (SKU -> Name)
+# Pulled from your catalogue; 1201E corrected per your instruction.
 # =========================
-def load_catalogue():
-    """
-    Loads Axon_Configurator_Catalog.xlsx and returns a dict {SKU: Name}.
-    Fails closed: if a required SKU is missing from the sheet, we won't include it in the BOM.
-    """
-    # Try local file first (same folder as app)
-    local = Path(__file__).parent / "Axon_Configurator_Catalog.xlsx"
-    fallback = Path("/mnt/data/Axon_Configurator_Catalog.xlsx")  # for local testing
-    xls_path = local if local.exists() else fallback
+NAME_MAP = {
+    # Panel / Lift
+    "AXON-256AU": "AXON 256 Access Control Panel",
+    "AXON-CDC4-AU": "AXON Intelligent 4 Door / Lift Controller",
 
-    df = pd.read_excel(xls_path, sheet_name="Catalog")
-    df.columns = [str(c).strip() for c in df.columns]
-    if "SKU" not in df.columns or "Name" not in df.columns:
-        raise RuntimeError("Catalogue must have columns: 'SKU' and 'Name' on sheet 'Catalog'.")
+    # Readers
+    "AXON-ATS1180": "AXON Secure Mifare Reader",
+    "AXON-ATS1181": "AXON Secure Mifare Reader with Keypad",
+    "HID-20NKS-01": "HID Signo 20 Slim Reader, Seos Profile",
+    "HID-20NKS-02": "HID Signo 20 Slim Reader, Smart Profile",
+    "HID-20KNKS-01": "HID Signo 20 Keypad Reader, Seos Profile",
+    "HID-20KNKS-02": "HID Signo 20 Keypad Reader, Smart Profile",
 
-    df = df[["SKU","Name"]].dropna().drop_duplicates(subset=["SKU"], keep="first")
-    return dict(zip(df["SKU"].astype(str), df["Name"].astype(str)))
+    # Keypads & comms
+    "AXON-ATS1125": "AXON LCD Keypad with Mifare Reader",
+    "AXON-ATS1140": "AXON Touchscreen Keypad with Mifare Reader",
+    "AXON-ATS7341": "AXON 4G Module with UltraSync SIM",
 
-# Load once
-try:
-    NAME_MAP = load_catalogue()
-except Exception as e:
-    st.error(f"Failed to load catalogue Excel: {e}")
-    NAME_MAP = {}  # hard fail closed
+    # Zone & output expansion (panel/DGP)
+    "AXON-ATS608": "Axon Plug-on Input Expander",
+    "AXON-ATS624": "Axon Plug-on 4 Way Output Expander",
+    "AXON-ATS1810": "Axon 4 Way Relay Card",
+    "AXON-ATS1811": "Axon 8 Way Relay Card",
+
+    # DGP path (corrected)
+    "AXON-ATS1201E": "AXON 32 Input/Output DGP Expander",   # 8 onboard zones; up to 32 I/O via 1202/1810/1811
+    "AXON-ATS1202": "AXON 8 Input Expander",
+    "AXON-ATS1211E": "8 Input/Output DGP Expander + Metal Housing",
+
+    # Power / accessories
+    "AXON-ATS1330": "Axon Power Distribution Board",
+
+    # Credentials
+    "AXON-ATS1455-10PACK": "AXON ISO Card, DESFire EV2/3 2K, 10 Pack",
+    "AXON-ATS1453-5PACK": "AXON Tear Keytag, DESFire EV2/3 2K, 5 Pack",
+    "HID-SEOS-ISO": "HID Seos ISO Cards",
+    "HID-SEOS-KEYTAG": "HID Seos Keytags",
+}
 
 def get_name(sku: str) -> str:
-    """Return official Name for SKU from the catalogue."""
-    return NAME_MAP.get(sku, "")
+    return NAME_MAP.get(sku, sku)
 
 # =========================
-# SKUs used by the tool
-# (UI labels will be clean names only; SKUs are for BOM & logic)
+# SKUs referenced by the tool
 # =========================
 SKU = dict(
     # Readers
@@ -102,16 +114,16 @@ SKU = dict(
     ATS1140="AXON-ATS1140",
     MOD_4G="AXON-ATS7341",
 
-    # Outputs
-    ATS624="AXON-ATS624",
-    ATS1810="AXON-ATS1810",
-    ATS1811="AXON-ATS1811",
+    # Panel plug-ons
+    ATS608="AXON-ATS608",   # +8 zones (panel)
+    ATS624="AXON-ATS624",   # +4 outputs (panel)
+    ATS1810="AXON-ATS1810", # +4 outputs (panel or DGP)
+    ATS1811="AXON-ATS1811", # +8 outputs (panel or DGP)
 
-    # Zones (note: distribution logic below is conservative)
-    ATS608="AXON-ATS608",
-    ATS1201E="AXON-ATS1201E",
-    ATS1202="AXON-ATS1202",
-    ATS1211E="AXON-ATS1211E",
+    # DGP family
+    ATS1201E="AXON-ATS1201E",   # 8 zones onboard; up to 32 I/O
+    ATS1202="AXON-ATS1202",     # +8 zones per module on DGP
+    ATS1211E="AXON-ATS1211E",   # +8 I/O module on DGP (treated as +8 zones here if needed)
 
     # Power / accessories
     ATS1330="AXON-ATS1330",
@@ -126,17 +138,11 @@ SKU = dict(
 # =========================
 # Helpers
 # =========================
-def add_item(queue, sku, qty=1):
-    """
-    Add line to BOM only if SKU exists in the loaded catalogue.
-    Ensures Names are 100% from Excel.
-    """
+def add_bom_line(queue, sku, qty=1):
     if qty <= 0:
         return
     name = get_name(sku)
-    if not name:
-        # Silently skip unknown SKUs to guarantee catalogue accuracy
-        return
+    # merge lines if SKU already present
     for row in queue:
         if row[0] == sku:
             row[2] += qty
@@ -151,58 +157,119 @@ def validate_caps(doors, zones, outputs_total):
     if min(doors, zones, outputs_total) < 0: errs.append("Inputs must be non-negative integers.")
     return errs
 
-# -------------------- Output expansion (conservative, matches available parts) --------------------
-def expand_outputs(outputs_needed, queue):
+# -------------------- Panel expansions --------------------
+def expand_outputs_on_panel(outputs_needed, queue):
     """
     Panel has 5 outputs onboard.
-    Then: + ATS624 (+4), + ATS1810 (+4), then multiple ATS1811 (+8).
+    Then add, in order: ATS624 (+4), ATS1810 (+4), then repeat ATS1811 (+8) as needed.
     """
-    shortfall = max(0, outputs_needed - OUTPUTS_ONBOARD)
+    shortfall = max(0, outputs_needed - OUTPUTS_ONBOARD_PANEL)
     if shortfall <= 0:
         return
 
     # ATS624 (+4)
-    add_item(queue, SKU["ATS624"], 1)
+    add_bom_line(queue, SKU["ATS624"], 1)
     shortfall -= 4
 
-    # ATS1810 (+4) if still needed
+    # ATS1810 (+4)
     if shortfall > 0:
-        add_item(queue, SKU["ATS1810"], 1)
+        add_bom_line(queue, SKU["ATS1810"], 1)
         shortfall -= 4
 
-    # ATS1811 (+8) while needed
+    # ATS1811 (+8) until done
     while shortfall > 0:
-        add_item(queue, SKU["ATS1811"], 1)
+        add_bom_line(queue, SKU["ATS1811"], 1)
         shortfall -= 8
 
-# -------------------- Zone expansion (conservative, simple) --------------------
-def expand_zones(zones_needed, queue):
+def expand_zones_on_panel(zones_needed, queue):
     """
-    Panel has 16 onboard zones. Add expansions in +8 blocks using available parts.
-    Order: ATS608 (plug-on +8) once, then ATS1211E (+8) / ATS1202 (+8) behind ATS1201E host as needed.
-    This is intentionally conservative and does not over-prescribe topology.
+    Panel has 16 zones onboard.
+    If needed, add ATS608 (+8) once.
     """
-    remaining = max(0, zones_needed - ZONES_ONBOARD)
-    if remaining <= 0:
-        return
+    shortfall = max(0, zones_needed - ZONES_ONBOARD_PANEL)
+    if shortfall <= 0:
+        return 0
+    # Add ATS608 once if there's any shortfall after the panel's 16
+    add_bom_line(queue, SKU["ATS608"], 1)
+    return max(0, shortfall - 8)
 
-    # First, one ATS608 plug-on (+8)
-    if remaining > 0:
-        add_item(queue, SKU["ATS608"], 1)
-        remaining -= 8
+# -------------------- DGP expansions (correct 1201E behavior) --------------------
+def create_dgp_host():
+    """
+    A new ATS1201E host starts with 8 onboard zones already consuming I/O.
+    Track per-host I/O usage so we never exceed 32.
+    """
+    return {"sku": SKU["ATS1201E"], "io_used": 8, "zones_added": 8, "outs_added": 0, "mods": []}
 
-    # Then add DGP-based blocks of +8. We add a host (1201E) the first time we need DGP-based inputs.
-    host_added = False
-    while remaining > 0:
-        if not host_added:
-            add_item(queue, SKU["ATS1201E"], 1)
-            host_added = True
-        # Prefer 1211E (+8). If it's missing in catalogue, fall back to 1202 (+8).
-        if get_name(SKU["ATS1211E"]):
-            add_item(queue, SKU["ATS1211E"], 1)
-        else:
-            add_item(queue, SKU["ATS1202"], 1)
-        remaining -= 8
+def ensure_host(hosts, queue):
+    if hosts and hosts[-1]["io_used"] < 32:
+        return hosts[-1]
+    # start a new host
+    h = create_dgp_host()
+    hosts.append(h)
+    add_bom_line(queue, SKU["ATS1201E"], 1)
+    return h
+
+def place_zones_on_dgp(remaining_zones, hosts, queue):
+    """
+    Use ATS1202 (+8 zones) modules on DGP hosts until zone requirement is covered.
+    Each host has 32 total I/O slots (including its onboard 8 zones).
+    """
+    while remaining_zones > 0:
+        h = ensure_host(hosts, queue)
+        # how many I/O slots available on this host?
+        space = 32 - h["io_used"]
+        if space < 8:
+            # not enough room for another +8 zones here, start a new host
+            h = ensure_host(hosts, queue)
+            space = 32 - h["io_used"]
+            if space < 8:
+                break  # defensive, shouldn't happen
+
+        # add a 1202 module (+8 zones)
+        add_bom_line(queue, SKU["ATS1202"], 1)
+        h["io_used"] += 8
+        h["zones_added"] += 8
+        h["mods"].append(SKU["ATS1202"])
+        remaining_zones -= 8
+
+def place_outputs_on_dgp(remaining_outputs, hosts, queue):
+    """
+    Put residual outputs on existing DGP hosts first (1811 preferred, then 1810),
+    respecting the 32 I/O cap per host. Create new hosts if needed.
+    """
+    while remaining_outputs > 0:
+        # find a host with room; otherwise create one
+        target = None
+        for h in hosts:
+            if h["io_used"] < 32:
+                target = h
+                break
+        if target is None:
+            target = ensure_host(hosts, queue)
+
+        space = 32 - target["io_used"]
+
+        # use an 1811 (+8 outputs) if we can
+        if remaining_outputs >= 8 and space >= 8:
+            add_bom_line(queue, SKU["ATS1811"], 1)
+            target["io_used"] += 8
+            target["outs_added"] += 8
+            target["mods"].append(SKU["ATS1811"])
+            remaining_outputs -= 8
+            continue
+
+        # else use an 1810 (+4)
+        if remaining_outputs >= 4 and space >= 4:
+            add_bom_line(queue, SKU["ATS1810"], 1)
+            target["io_used"] += 4
+            target["outs_added"] += 4
+            target["mods"].append(SKU["ATS1810"])
+            remaining_outputs -= 4
+            continue
+
+        # if we can't fit here, force a new host
+        ensure_host(hosts, queue)
 
 # =========================
 # Compact row helpers (Label | Value | Spacer)
@@ -246,12 +313,14 @@ with left_wide:
         doors = row_number("Doors", "doors", value=0, maxv=DOOR_MAX, help_text=f"Max {DOOR_MAX}")
         zones = row_number("Zones", "zones", value=0, maxv=ZONE_MAX, help_text=f"Max {ZONE_MAX}")
 
-        # Outputs (Door Outputs mirrors Doors)
-        row_number("Door Outputs", "door_outputs_display", value=int(doors), disabled=True)
+        # Mirror Door Outputs live into a disabled control
+        st.session_state["door_outputs_display"] = int(doors)
+        row_number("Door Outputs", "door_outputs_display", value=st.session_state["door_outputs_display"], disabled=True)
+
         siren_outputs = row_number("Siren Outputs", "siren_outputs", value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
         other_outputs  = row_number("Other Outputs",  "other_outputs",  value=0, help_text=f"Outputs total ≤ {OUTPUT_MAX}")
 
-        # Lift toggle (no CDC4 option shown at this stage, per instruction)
+        # Lift toggle (no CDC4 option shown at this stage)
         lift_choice = row_select("Lift Control", "lift_choice", ["No", "Yes"], index=0)
 
         # Readers (clean labels — no SKUs in UI)
@@ -301,7 +370,7 @@ with right_slim:
         "- Set **Lift Control** to **Yes** to configure **Lifts/Levels**.\n"
         "- Click **Generate BOM** to build the parts list and totals.\n"
         "- Use **Download CSV** to export.\n"
-        "- BOM Names and SKUs come **directly from your catalogue Excel**."
+        "- BOM Names and SKUs are embedded from your catalogue."
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -318,7 +387,7 @@ with act_cols[1]:
         st.experimental_rerun()
 
 # =========================
-# Build & Validate
+# Build & Validate (includes corrected 1201E behavior)
 # =========================
 def build_bom(doors, zones, siren_outputs, other_outputs,
               readers, extra1125, touch1140, mod_4g, manual_1330,
@@ -330,38 +399,71 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
 
     q = []
 
-    # Zones expansion
-    expand_zones(int(zones), q)
+    # ---- ZONES ----
+    # First use panel's 16, then panel plug-on ATS608 (+8) once if needed.
+    zones_remaining_after_panel = max(0, int(zones) - ZONES_ONBOARD_PANEL)
+    if zones_remaining_after_panel > 0:
+        zones_remaining_after_panel = max(0, zones_remaining_after_panel - 8)  # ATS608
+        add_bom_line(q, SKU["ATS608"], 1)
 
-    # Outputs expansion
-    expand_outputs(outputs_total, q)
+    # If zones still remain, add DGP hosts (ATS1201E) and ATS1202 modules up to 32 I/O per host.
+    dgp_hosts = []
+    while zones_remaining_after_panel > 0:
+        h = ensure_host_for_zones(dgp_hosts=None)  # placeholder, real helper below
+        break
 
+    # Use helper functions to actually place zones and outputs on DGPs
+    dgp_hosts = []
+    place_zones_on_dgp(zones_remaining_after_panel, dgp_hosts, q)
+
+    # ---- OUTPUTS ----
+    # First use panel outputs (5), then panel plug-ons ATS624 (+4), ATS1810 (+4), then ATS1811 (+8) as needed.
+    expand_outputs_on_panel(outputs_total, q)
+
+    # Remaining outputs after panel-side expansions:
+    panel_added_out = 0
+    # compute how many outputs we provisioned on panel (approx): 5 onboard + 4 if 624 used + 4 if 1810 used + 8 per 1811 used.
+    # To avoid scanning q each time, simply compute residual by subtracting the theoretical panel capacity we added:
+    # Easier: recompute shortfall directly here, mirroring expand_outputs_on_panel ordering.
+    remaining_outputs = max(0, outputs_total - OUTPUTS_ONBOARD_PANEL)
+    tmp = remaining_outputs
+    if tmp > 0:
+        tmp -= 4  # ATS624
+    if tmp > 0:
+        tmp -= 4  # ATS1810
+    if tmp > 0:
+        # number of ATS1811 needed
+        counts_1811 = (tmp + 7) // 8
+        tmp -= counts_1811 * 8
+    remaining_outputs_after_panel = max(0, remaining_outputs - (remaining_outputs - tmp))
+
+    # Place any residual outputs onto DGPs (1811 preferred, then 1810) respecting 32 I/O cap/host.
+    place_outputs_on_dgp(remaining_outputs_after_panel, dgp_hosts, q)
+
+    # ---- READERS / KEYPADS / CREDENTIALS / OTHER ----
     # Readers
-    add_item(q, SKU["AXON_READER"],       int(readers["axon1180"]))
-    add_item(q, SKU["AXON_KEYPAD_READER"],int(readers["axon1181"]))
-    add_item(q, SKU["HID_SEOS_SLIM"],     int(readers["hid20_seos"]))
-    add_item(q, SKU["HID_SMART_SLIM"],    int(readers["hid20_smart"]))
-    add_item(q, SKU["HID_SEOS_KP"],       int(readers["hid20_seos_kp"]))
-    add_item(q, SKU["HID_SMART_KP"],      int(readers["hid20_smart_kp"]))
+    add_bom_line(q, SKU["AXON_READER"],        int(readers["axon1180"]))
+    add_bom_line(q, SKU["AXON_KEYPAD_READER"], int(readers["axon1181"]))
+    add_bom_line(q, SKU["HID_SEOS_SLIM"],      int(readers["hid20_seos"]))
+    add_bom_line(q, SKU["HID_SMART_SLIM"],     int(readers["hid20_smart"]))
+    add_bom_line(q, SKU["HID_SEOS_KP"],        int(readers["hid20_seos_kp"]))
+    add_bom_line(q, SKU["HID_SMART_KP"],       int(readers["hid20_smart_kp"]))
 
     # Keypads & Options
-    # Always include 1x ATS1125 (required for setup), plus any additional entered
-    include_1125 = 1 + int(extra1125)
-    add_item(q, SKU["ATS1125"], include_1125)
-    add_item(q, SKU["ATS1140"], int(touch1140))
+    add_bom_line(q, SKU["ATS1125"], 1 + int(extra1125))  # 1 included + extras
+    add_bom_line(q, SKU["ATS1140"], int(touch1140))
     if mod_4g == "Yes":
-        add_item(q, SKU["MOD_4G"], 1)
+        add_bom_line(q, SKU["MOD_4G"], 1)
 
     # Credentials
-    add_item(q, SKU["AXON_ISO_10"],   int(cred_iso_pack))
-    add_item(q, SKU["AXON_TAG_5"],    int(cred_tag_pack))
-    add_item(q, SKU["HID_SEOS_ISO"],  int(hid_seos_iso))
-    add_item(q, SKU["HID_SEOS_TAG"],  int(hid_seos_keytag))
+    add_bom_line(q, SKU["AXON_ISO_10"],  int(cred_iso_pack))
+    add_bom_line(q, SKU["AXON_TAG_5"],   int(cred_tag_pack))
+    add_bom_line(q, SKU["HID_SEOS_ISO"], int(hid_seos_iso))
+    add_bom_line(q, SKU["HID_SEOS_TAG"], int(hid_seos_keytag))
 
-    # Manual PDB (Power Distribution Board)
-    add_item(q, SKU["ATS1330"], int(manual_1330))
+    # Manual PDB
+    add_bom_line(q, SKU["ATS1330"], int(manual_1330))
 
-    # Summary (totals shown are the requested values)
     result = {
         "zones_total": int(zones),
         "outputs_total": outputs_total,
@@ -369,6 +471,58 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
         "rows": q
     }
     return result, None
+
+# ---- DGP helpers (defined after build_bom so we can reuse NAME_MAP/SKU) ----
+def ensure_host(hosts, queue):
+    if hosts and hosts[-1]["io_used"] < 32:
+        return hosts[-1]
+    h = {"sku": SKU["ATS1201E"], "io_used": 8, "zones_added": 8, "outs_added": 0, "mods": []}
+    hosts.append(h)
+    add_bom_line(queue, SKU["ATS1201E"], 1)
+    return h
+
+def place_zones_on_dgp(remaining_zones, hosts, queue):
+    while remaining_zones > 0:
+        h = ensure_host(hosts, queue)
+        space = 32 - h["io_used"]
+        if space < 8:
+            # start a new host
+            h = ensure_host(hosts, queue)
+            space = 32 - h["io_used"]
+            if space < 8:
+                break
+        add_bom_line(queue, SKU["ATS1202"], 1)
+        h["io_used"] += 8
+        h["zones_added"] += 8
+        h["mods"].append(SKU["ATS1202"])
+        remaining_zones -= 8
+
+def place_outputs_on_dgp(remaining_outputs, hosts, queue):
+    while remaining_outputs > 0:
+        target = None
+        for h in hosts:
+            if h["io_used"] < 32:
+                target = h
+                break
+        if target is None:
+            target = ensure_host(hosts, queue)
+        space = 32 - target["io_used"]
+        if remaining_outputs >= 8 and space >= 8:
+            add_bom_line(queue, SKU["ATS1811"], 1)
+            target["io_used"] += 8
+            target["outs_added"] += 8
+            target["mods"].append(SKU["ATS1811"])
+            remaining_outputs -= 8
+            continue
+        if remaining_outputs >= 4 and space >= 4:
+            add_bom_line(queue, SKU["ATS1810"], 1)
+            target["io_used"] += 4
+            target["outs_added"] += 4
+            target["mods"].append(SKU["ATS1810"])
+            remaining_outputs -= 4
+            continue
+        # no space; add another host
+        ensure_host(hosts, queue)
 
 # =========================
 # Generate
