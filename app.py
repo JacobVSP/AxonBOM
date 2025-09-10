@@ -39,8 +39,6 @@ PANEL_1811_LIMIT = 4
 # Catalogue (SKU -> Name)
 # =========================
 NAME_MAP = {
-    "AXON-256AU": "AXON 256 Access Control Panel",
-    "AXON-CDC4-AU": "AXON Intelligent 4 Door / Lift Controller",
     "AXON-ATS1180": "AXON Secure Mifare Reader",
     "AXON-ATS1181": "AXON Secure Mifare Reader with Keypad",
     "HID-20NKS-01": "HID Signo 20 Slim Reader, Seos Profile",
@@ -67,7 +65,7 @@ NAME_MAP = {
 def get_name(sku): return NAME_MAP.get(sku, sku)
 
 # =========================
-# SKUs dictionary
+# SKUs
 # =========================
 SKU = dict(
     AXON_READER="AXON-ATS1180",
@@ -118,21 +116,21 @@ def validate_caps(doors, zones, outputs_total):
 def expand_zones_on_panel(zones_needed, q, notes):
     remaining = max(0, zones_needed - ZONES_ONBOARD_PANEL)
     if remaining > 0:
-        add_bom_line(q, notes, SKU["ATS608"], 1, f"Added to extend panel from 16 → 24 zones")
+        add_bom_line(q, notes, SKU["ATS608"], 1, "Added ATS608 plug-on to extend panel from 16 → 24 zones")
         remaining -= 8
     return max(0, remaining)
 
 def expand_outputs_on_panel(outputs_needed, q, notes):
     remaining = max(0, outputs_needed - OUTPUTS_ONBOARD_PANEL)
     if remaining <= 0: return 0
-    add_bom_line(q, notes, SKU["ATS624"], 1, "Added to extend panel outputs by +4")
+    add_bom_line(q, notes, SKU["ATS624"], 1, "Added ATS624 plug-on for +4 outputs")
     remaining -= 4
     if remaining > 0:
-        add_bom_line(q, notes, SKU["ATS1810"], 1, "Added to extend panel outputs by +4")
+        add_bom_line(q, notes, SKU["ATS1810"], 1, "Added ATS1810 for +4 outputs on panel")
         remaining -= 4
     count_1811 = 0
     while remaining > 0 and count_1811 < PANEL_1811_LIMIT:
-        add_bom_line(q, notes, SKU["ATS1811"], 1, "Added to extend panel outputs by +8")
+        add_bom_line(q, notes, SKU["ATS1811"], 1, "Added ATS1811 for +8 outputs on panel")
         remaining -= 8
         count_1811 += 1
     return max(0, remaining)
@@ -141,31 +139,33 @@ def expand_outputs_on_panel(outputs_needed, q, notes):
 def place_zones_on_dgp(remaining, q, notes):
     while remaining > 0:
         if remaining <= 8:
-            add_bom_line(q, notes, SKU["ATS1211E"], 1, f"Added to cover zones beyond panel/608 (now +8 zones)")
+            add_bom_line(q, notes, SKU["ATS1211E"], 1, "Added ATS1211E (+8 zones / +8 outputs) for small zone shortfall")
             remaining -= 8
         else:
-            add_bom_line(q, notes, SKU["ATS1201E"], 1, "Added for large zone expansion (8 onboard inputs)")
+            add_bom_line(q, notes, SKU["ATS1201E"], 1, "Added ATS1201E (8 zones onboard, expandable to 32)")
             remaining -= 8
-            while remaining > 0 and remaining >= 8 and notes[SKU["ATS1201E"]].count("ATS1202") < 3:
-                add_bom_line(q, notes, SKU["ATS1202"], 1, "Added to extend ATS1201E by +8 zones")
+            count_1202 = 0
+            while remaining > 0 and count_1202 < 3:
+                add_bom_line(q, notes, SKU["ATS1202"], 1, "Added ATS1202 (+8 zones) to extend ATS1201E")
                 remaining -= 8
+                count_1202 += 1
     return remaining
 
 def place_outputs_on_dgp(remaining, q, notes):
     while remaining > 0:
         if remaining <= 8:
-            add_bom_line(q, notes, SKU["ATS1211E"], 1, f"Added to cover outputs shortfall (now +8 outputs)")
+            add_bom_line(q, notes, SKU["ATS1211E"], 1, "Added ATS1211E (+8 zones / +8 outputs) for small output shortfall")
             remaining -= 8
         else:
-            add_bom_line(q, notes, SKU["ATS1201E"], 1, "Added for large output expansion (8 onboard inputs + outputs)")
+            add_bom_line(q, notes, SKU["ATS1201E"], 1, "Added ATS1201E for large output expansion (up to 32 outputs)")
             cap = 32
             used = 0
             while remaining > 0 and used < cap:
                 if remaining >= 8:
-                    add_bom_line(q, notes, SKU["ATS1811"], 1, "Added to extend ATS1201E outputs by +8")
+                    add_bom_line(q, notes, SKU["ATS1811"], 1, "Added ATS1811 (+8 outputs) to extend ATS1201E")
                     remaining -= 8; used += 8
                 elif remaining >= 4:
-                    add_bom_line(q, notes, SKU["ATS1810"], 1, "Added to extend ATS1201E outputs by +4")
+                    add_bom_line(q, notes, SKU["ATS1810"], 1, "Added ATS1810 (+4 outputs) to extend ATS1201E")
                     remaining -= 4; used += 4
                 else: break
     return remaining
@@ -237,16 +237,19 @@ def row_select(label, key, options, index=0):
     with c1: st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
     with c2: return st.selectbox("", options, index=index, key=key, label_visibility="collapsed")
 
+# =========================
 # Layout
+# =========================
+st.markdown("#### System")
 doors = row_number("Doors","doors",0,maxv=DOOR_MAX)
 zones = row_number("Zones","zones",0,maxv=ZONE_MAX)
 st.session_state["door_outputs_display"]=int(doors)
 row_number("Door Outputs","door_outputs_display",st.session_state["door_outputs_display"],disabled=True)
 siren_outputs=row_number("Siren Outputs","siren_outputs",0)
 other_outputs=row_number("Other Outputs","other_outputs",0)
-lift_choice=row_select("Lift Control","lift_choice",["No","Yes"],0)
+row_select("Lift Control","lift_choice",["No","Yes"],0)
 
-# Readers
+st.markdown("---"); st.markdown("#### Readers")
 axon1180=row_number("AXON Reader","axon1180",0)
 axon1181=row_number("AXON Keypad Reader","axon1181",0)
 hid20_seos=row_number("HID Seos Reader","hid20_seos",0)
@@ -254,13 +257,13 @@ hid20_smart=row_number("HID Smart Reader","hid_smart",0)
 hid20_seos_kp=row_number("HID Seos Keypad Reader","hid_seos_kp",0)
 hid20_smart_kp=row_number("HID Smart Keypad Reader","hid_smart_kp",0)
 
-# Keypads & Options
+st.markdown("---"); st.markdown("#### Keypads & Options")
 extra1125=row_number("Additional ATS1125 LCD Keypad","extra1125",0,info_text="1x ATS1125 Keypad is automatically included in the BOM, leave blank if no additional keypads are required")
 touch1140=row_number("ATS1140 Touchscreen Keypad","touch1140",0)
 mod_4g=row_select("4G Module Required","mod_4g",["No","Yes"],0)
 manual_1330=row_number("AXON Power Distribution Board","manual_1330",0)
 
-# Credentials
+st.markdown("---"); st.markdown("#### Credentials")
 cred_iso_pack=row_number("AXON ISO Cards - 10 Pack","cred_iso_pack",0)
 cred_tag_pack=row_number("AXON Keytags - 5 Pack","cred_tag_pack",0)
 hid_seos_iso=row_number("HID Seos ISO Cards","hid_seos_iso",0)
@@ -283,27 +286,6 @@ if generate:
         s3.metric("Outputs",result["outputs_total"])
         s4.metric("Readers",result["doors_total"])
 
-        st.markdown("#### BOM (SKU / Name / Qty)")
-        df=pd.DataFrame(result["rows"],columns=["SKU","Name","Qty"]).sort_values(by=["SKU"])
-        st.dataframe(df,use_container_width=True,hide_index=True,height=340)
-
-        # CSV with notes
-        notes=result["notes"]
+        st.markdown("#### BOM (SKU / Name / Qty / Notes)")
         bom_with_notes=[]
-        for sku,name,qty in result["rows"]:
-            joined="; ".join(notes.get(sku,[]))
-            bom_with_notes.append([sku,name,qty,joined])
-        bom_df=pd.DataFrame(bom_with_notes,columns=["SKU","Name","Qty","Connection Notes"])
-
-        # System Summary block
-        summary=[["System Summary","","",""],
-                 ["Doors Supported",result["doors_total"],"",""],
-                 ["Zones Supported",result["zones_total"],"",""],
-                 ["Outputs Supported",result["outputs_total"],"",""],
-                 ["Readers Supported",result["doors_total"],"",""],
-                 ["","","",""]]
-        summary_df=pd.DataFrame(summary,columns=["SKU","Name","Qty","Connection Notes"])
-        export_df=pd.concat([summary_df,bom_df],ignore_index=True)
-
-        csv=export_df.to_csv(index=False).encode("utf-8")
-        st.download_button("Download CSV",data=csv,file_name="AXON_BOM.csv",mime="text/csv")
+        for sku,name,qty in result["rows
