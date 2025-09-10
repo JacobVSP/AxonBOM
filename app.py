@@ -287,31 +287,25 @@ if generate:
         s4.metric("Readers",result["doors_total"])
 
         st.markdown("#### BOM (SKU / Name / Qty / Notes)")
-                bom_with_notes = []
-        for sku, name, qty in result["rows"]:
-            joined = "; ".join(result["notes"].get(sku, []))
-            bom_with_notes.append([sku, name, qty, joined])
+        bom_with_notes=[]
+        for sku,name,qty in result["rows"]:
+            joined="; ".join(result["notes"].get(sku,[]))
+            bom_with_notes.append([sku,name,qty,joined])
 
-        bom_df = pd.DataFrame(bom_with_notes, columns=["SKU", "Name", "Qty", "Connection Notes"])
-        st.dataframe(bom_df, use_container_width=True, hide_index=True, height=340)
+        bom_df=pd.DataFrame(bom_with_notes,columns=["SKU","Name","Qty","Connection Notes"])
+        st.dataframe(bom_df,use_container_width=True,hide_index=True,height=340)
 
         # ===== CSV export with System Summary =====
-        summary = [
-            ["System Summary", "", "", ""],
-            ["Doors Supported", result["doors_total"], "", ""],
-            ["Zones Supported", result["zones_total"], "", ""],
-            ["Outputs Supported", result["outputs_total"], "", ""],
-            ["Readers Supported", result["doors_total"], "", ""],
-            ["", "", "", ""],
+        summary=[
+            ["System Summary","","",""],
+            ["Doors Supported",result["doors_total"],"",""],
+            ["Zones Supported",result["zones_total"],"",""],
+            ["Outputs Supported",result["outputs_total"],"",""],
+            ["Readers Supported",result["doors_total"],"",""],
+            ["","","",""],
         ]
-        summary_df = pd.DataFrame(summary, columns=["SKU", "Name", "Qty", "Connection Notes"])
+        summary_df=pd.DataFrame(summary,columns=["SKU","Name","Qty","Connection Notes"])
+        export_df=pd.concat([summary_df,bom_df],ignore_index=True)
+        csv=export_df.to_csv(index=False).encode("utf-8")
 
-        export_df = pd.concat([summary_df, bom_df], ignore_index=True)
-        csv = export_df.to_csv(index=False).encode("utf-8")
-
-        st.download_button(
-            "Download CSV",
-            data=csv,
-            file_name="AXON_BOM.csv",
-            mime="text/csv"
-        )
+        st.download_button("Download CSV",data=csv,file_name="AXON_BOM.csv",mime="text/csv")
