@@ -21,7 +21,7 @@ div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !import
 
 /* Make number inputs compact and LEFT aligned; freeze width to ~140px */
 div[data-testid="stNumberInput"] label { display: none; }
-div[data-testid="stNumberInput"] > div { width: 140px !important; }   /* container */
+div[data-testid="stNumberInput"] > div { width: 140px !important; }   /* container width */
 div[data-testid="stNumberInput"] input {
   padding: 2px 6px; height: 30px; text-align: left;
 }
@@ -39,32 +39,39 @@ div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; 
 # -------------------- System limits --------------------
 ZONES_ONBOARD = 16
 OUTPUTS_ONBOARD = 5
-
 DOOR_MAX    = 56
 OUTPUT_MAX  = 128     # Doors + Sirens + Other
 ZONE_MAX    = 256
 
+# -------------------- Catalogue-accurate SKU -> Name map --------------------
 NAME_MAP = {
-    "AXON-ATS1201E": "AXON DGP Host (32 Zones max / 16 Outputs max)",
-    "AXON-ATS1801":  "AXON Input Expander (+8 Zones on DGP)",
-    "AXON-ATS1810":  "AXON Output Expander (+4 Outputs on DGP / on ATS624)",
-    "AXON-ATS1811":  "AXON Output Expander (+8 Outputs on Panel or DGP)",
-    "AXON-ATS624":   "AXON Panel Output Expander (+4 Outputs on Panel)",
-    "AXON-ATS1125":  "AXON LCD Keypad",
-    "AXON-ATS1140":  "AXON Touchscreen Keypad",
-    "AXON-ATS7341":  "AXON 4G Module",
-    "AXON-ATS1455-10Pack": "AXON ISO Cards - 10 Pack",
-    "AXON-ATS1453-5Pack":  "AXON Keytags - 5 Pack",
-    "AXON-AXON1180": "AXON Reader",
-    "AXON-AXON1181": "AXON Keypad Reader",
-    "HID-20-SEOS":   "HID Seos Reader",
-    "HID-20-SMART":  "HID Smart Reader",
-    "HID-20-SEOS-KP":"HID Seos Keypad Reader",
-    "HID-20-SMART-KP":"HID Smart Keypad Reader",
-    "AXON-ATS1330":  "AXON BUS Distributor",
-    "HID-SEOS-ISO":      "HID Seos ISO Card",
-    "HID-SEOS-KEYTAG":   "HID Seos Keytag",
+ 'AXON-256AU': 'AXON 256 Access Control Panel',
+ 'AXON-ATS1125': 'AXON LCD Keypad with Mifare Reader',
+ 'AXON-ATS1140': 'AXON Touchscreen Keypad with Mifare Reader',
+ 'AXON-ATS1180': 'AXON Secure Mifare Reader',
+ 'AXON-ATS1181': 'AXON Secure Mifare Reader with Keypad',
+ 'AXON-ATS1201E': 'AXON 8-Zone Input Expander',
+ 'AXON-ATS1202': 'AXON 8 Input Expander',
+ 'AXON-ATS1211E': '8 Input/Output DGP Expander + Metal Housing',
+ 'AXON-ATS1330': 'Axon Power Distribution Board',
+ 'AXON-ATS1453-5PACK': 'AXON Tear Keytag, DESFire EV2/3 2K, 5 Pack',
+ 'AXON-ATS1455-10PACK': 'AXON ISO Card, DESFire EV2/3 2K, 10 Pack',
+ 'AXON-ATS1810': 'Axon 4 Way Relay Card',
+ 'AXON-ATS1811': 'Axon 8 Way Relay Card',
+ 'AXON-ATS608': 'Axon Plug-on Input Expander',
+ 'AXON-ATS624': 'Axon Plug-on 4 Way Output Expander',
+ 'AXON-ATS7341': 'AXON 4G Module with UltraSync SIM',
+ 'AXON-CDC4-AU': 'AXON Intelligent 4 Door / Lift Controller',
+ 'HID-20KNKS-01': 'HID Signo 20 Keypad Reader, Seos Profile',
+ 'HID-20KNKS-02': 'HID Signo 20 Keypad Reader, Smart Profile',
+ 'HID-20NKS-01': 'HID Signo 20 Slim Reader, Seos Profile',
+ 'HID-20NKS-02': 'HID Signo 20 Slim Reader, Smart Profile',
+ 'HID-SEOS-ISO': 'HID Seos ISO Cards',
+ 'HID-SEOS-KEYTAG': 'HID Seos Keytags'
 }
+
+def label_sku(sku: str) -> str:
+    return f"{sku} \u2013 {NAME_MAP.get(sku, sku)}"
 
 DGP_ZONE_CAP = 32
 DGP_OUTPUT_CAP = {"AXON-ATS1201E": 16}
@@ -187,30 +194,31 @@ with left_wide:
         # Lift toggle
         lift_choice = row_select("Lift Control", "lift_choice", ["No", "Yes"], index=0)
 
-        # Readers
+        # Readers (SKUs & Names from catalogue)
         st.markdown("---"); st.markdown("**Readers**")
-        axon1180 = row_number("AXON Reader", "axon1180", value=0)
-        axon1181 = row_number("AXON Keypad Reader", "axon1181", value=0)
-        hid20_seos = row_number("HID Seos Reader", "hid_seos", value=0)
-        hid20_smart = row_number("HID Smart Reader", "hid_smart", value=0)
-        hid20_seos_kp = row_number("HID Seos Keypad Reader", "hid_seos_kp", value=0)
-        hid20_smart_kp = row_number("HID Smart Keypad Reader", "hid_smart_kp", value=0)
+        axon1180 = row_number(label_sku("AXON-ATS1180"), "axon1180", value=0)
+        axon1181 = row_number(label_sku("AXON-ATS1181"), "axon1181", value=0)
+        hid20_seos = row_number(label_sku("HID-20NKS-01"), "hid_seos", value=0)
+        hid20_smart = row_number(label_sku("HID-20NKS-02"), "hid_smart", value=0)
+        hid20_seos_kp = row_number(label_sku("HID-20KNKS-01"), "hid_seos_kp", value=0)
+        hid20_smart_kp = row_number(label_sku("HID-20KNKS-02"), "hid_smart_kp", value=0)
 
         # Keypads & Options
         st.markdown("---"); st.markdown("**Keypads & Options**")
         extra1125 = row_number(
-            "Additional ATS1125 LCD Keypad", "extra1125", value=0
+            f"{label_sku('AXON-ATS1125')} (additional)",
+            "extra1125", value=0
         )
-        touch1140 = row_number("ATS1140 Touchscreen Keypad", "touch1140", value=0)
-        mod_4g = row_select("4G Module Required", "mod_4g", ["No", "Yes"], index=0)
-        manual_1330 = row_number("AXON-ATS1330 - BUS Distributor", "manual_1330", value=0)
+        touch1140 = row_number(label_sku("AXON-ATS1140"), "touch1140", value=0)
+        mod_4g = row_select(label_sku("AXON-ATS7341"), "mod_4g", ["No", "Yes"], index=0)
+        manual_1330 = row_number(label_sku("AXON-ATS1330"), "manual_1330", value=0)
 
         # Credentials
         st.markdown("---"); st.markdown("**Credentials**")
-        cred_iso_pack   = row_number("AXON ISO Cards - 10 Pack", "cred_iso_pack", value=0)
-        cred_tag_pack   = row_number("AXON Keytags - 5 Pack",  "cred_tag_pack", value=0)
-        hid_seos_iso    = row_number("HID Seos ISO Cards",     "hid_seos_iso", value=0)
-        hid_seos_keytag = row_number("HID Seos Keytags",       "hid_seos_keytag", value=0)
+        cred_iso_pack   = row_number(label_sku("AXON-ATS1455-10PACK"), "cred_iso_pack", value=0)
+        cred_tag_pack   = row_number(label_sku("AXON-ATS1453-5PACK"), "cred_tag_pack", value=0)
+        hid_seos_iso    = row_number(label_sku("HID-SEOS-ISO"), "hid_seos_iso", value=0)
+        hid_seos_keytag = row_number(label_sku("HID-SEOS-KEYTAG"), "hid_seos_keytag", value=0)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -263,26 +271,26 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
     remaining_outputs = max(0, outputs_total - OUTPUTS_ONBOARD - added_panel_out)
     _, rs485_out_dgp = place_remaining_outputs_on_dgp(remaining_outputs, notes)
 
-    # Readers
-    add_item(q, "AXON-AXON1180", int(readers["axon1180"]))
-    add_item(q, "AXON-AXON1181", int(readers["axon1181"]))
-    add_item(q, "HID-20-SEOS",   int(readers["hid20_seos"]))
-    add_item(q, "HID-20-SMART",  int(readers["hid20_smart"]))
-    add_item(q, "HID-20-SEOS-KP",int(readers["hid20_seos_kp"]))
-    add_item(q, "HID-20-SMART-KP", int(readers["hid20_smart_kp"]))
+    # Readers (catalogue-accurate SKUs)
+    add_item(q, "AXON-ATS1180", int(readers["axon1180"]))
+    add_item(q, "AXON-ATS1181", int(readers["axon1181"]))
+    add_item(q, "HID-20NKS-01", int(readers["hid20_seos"]))
+    add_item(q, "HID-20NKS-02", int(readers["hid20_smart"]))
+    add_item(q, "HID-20KNKS-01", int(readers["hid20_seos_kp"]))
+    add_item(q, "HID-20KNKS-02", int(readers["hid20_smart_kp"]))
 
     # Keypads & Options
-    add_item(q, "AXON-ATS1125", 1 + int(extra1125))
+    add_item(q, "AXON-ATS1125", 1 + int(extra1125))  # 1 included + extras
     add_item(q, "AXON-ATS1140", int(touch1140))
     if mod_4g == "Yes": add_item(q, "AXON-ATS7341", 1)
 
     # Credentials
-    add_item(q, "AXON-ATS1455-10Pack", int(cred_iso_pack))
-    add_item(q, "AXON-ATS1453-5Pack",  int(cred_tag_pack))
+    add_item(q, "AXON-ATS1455-10PACK", int(cred_iso_pack))
+    add_item(q, "AXON-ATS1453-5PACK",  int(cred_tag_pack))
     add_item(q, "HID-SEOS-ISO",        int(hid_seos_iso))
     add_item(q, "HID-SEOS-KEYTAG",     int(hid_seos_keytag))
 
-    # Manual BUS Distributor
+    # Manual Power Distribution Board
     add_item(q, "AXON-ATS1330", int(manual_1330))
 
     rs485 = rs485_z + rs485_out_panel + rs485_out_dgp
