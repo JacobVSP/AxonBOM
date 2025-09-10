@@ -4,7 +4,7 @@ import pandas as pd
 # -------------------- Page & style --------------------
 st.set_page_config(page_title="AXON BOM Generator (Web)", layout="wide")
 
-# Left-aligned inline rows: label + value in one grid, 5px gap
+# Left-aligned rows: [Label | Value | Spacer], 5px gap. Compact 140px controls.
 st.markdown("""
 <style>
 .main .block-container { max-width: 1200px; padding-top: 10px; padding-bottom: 8px; }
@@ -12,19 +12,24 @@ st.markdown("""
 /* Card */
 .card { border: 1px solid #e6e6e6; border-radius: 10px; padding: 10px 12px; background: #fafafa; }
 
-/* INLINE ROW: label + widget side-by-side with 5px gap */
-.axon-row { display: grid; grid-template-columns: max-content 130px; column-gap: 5px; align-items: center; }
-.axon-label-inline { font-weight: 600; margin: 6px 0 2px 0; }
+/* Keep columns very close but readable */
+div[data-testid="stHorizontalBlock"] { gap: 5px !important; }
+div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !important; }
 
-/* Number/Select compact look, text LEFT-aligned */
+/* Label style (left aligned) */
+.axon-label { font-weight: 600; margin: 6px 0 2px 0; }
+
+/* Make number inputs compact and LEFT aligned; freeze width to ~140px */
 div[data-testid="stNumberInput"] label { display: none; }
-div[data-testid="stNumberInput"] input { padding: 2px 6px; height: 30px; text-align: left; }
+div[data-testid="stNumberInput"] > div { width: 140px !important; }   /* container */
+div[data-testid="stNumberInput"] input {
+  padding: 2px 6px; height: 30px; text-align: left;
+}
+
+/* Make selects compact and ~140px wide, left aligned */
+div[data-baseweb="select"] { width: 140px !important; }
 div[data-baseweb="select"] > div { min-height: 30px; }
 div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; }
-
-/* Info icon */
-.axon-info { cursor: help; font-weight: 700; margin-left: 6px; color: #666; }
-.axon-info:hover { color: #000; }
 
 /* Slim instruction text */
 .axon-instr { font-size: 0.9rem; line-height: 1.35; }
@@ -34,8 +39,9 @@ div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; 
 # -------------------- System limits --------------------
 ZONES_ONBOARD = 16
 OUTPUTS_ONBOARD = 5
+
 DOOR_MAX    = 56
-OUTPUT_MAX  = 128      # Doors + Sirens + Other
+OUTPUT_MAX  = 128     # Doors + Sirens + Other
 ZONE_MAX    = 256
 
 NAME_MAP = {
@@ -78,10 +84,12 @@ def distribute_zones_to_panel_and_dgps(zones_needed, notes):
     rs485_devices = 0
     cdc4_count = 0
     remaining = max(0, zones_needed - panel_zones)
+
     panel_1811 = 0
     while remaining > 0 and panel_1811 < 4:
         panel_zones += 8; panel_1811 += 1; remaining -= 8
         add_item(notes["queue"], "AXON-ATS1811", 1); rs485_devices += 1; notes["panel_1811"] += 1
+
     while remaining > 0:
         add_item(notes["queue"], "AXON-ATS1201E", 1); rs485_devices += 1
         take = min(remaining, DGP_ZONE_CAP); remaining -= take
@@ -137,27 +145,24 @@ def validate_caps(doors, zones, outputs_total):
     if min(doors, zones, outputs_total) < 0: errs.append("Inputs must be non-negative integers.")
     return errs
 
-# ---------- Inline row helpers (label + widget inside one grid) ----------
-def row_label_inline(text, info=None):
-    if info:
-        st.markdown(f"<div class='axon-label-inline'>{text}<span class='axon-info' title='{info}'>ⓘ</span></div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div class='axon-label-inline'>{text}</div>", unsafe_allow_html=True)
-
-def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, help_text=None, info_text=None):
-    st.markdown("<div class='axon-row'>", unsafe_allow_html=True)
-    row_label_inline(label, info_text)
-    val = st.number_input(label="", key=key, min_value=minv, max_value=maxv, value=value,
-                          step=step, disabled=disabled, help=help_text, label_visibility="collapsed")
-    st.markdown("</div>", unsafe_allow_html=True)
-    return val
+# ---------- Row helpers: [Label | Value | Spacer] ----------
+def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, help_text=None):
+    # label | value (140px) | spacer
+    c1, c2, _ = st.columns([0.48, 0.16, 0.36])
+    with c1:
+        st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
+    with c2:
+        return st.number_input(
+            label="", key=key, min_value=minv, max_value=maxv, value=value, step=step,
+            disabled=disabled, help=help_text, label_visibility="collapsed"
+        )
 
 def row_select(label, key, options, index=0, help_text=None):
-    st.markdown("<div class='axon-row'>", unsafe_allow_html=True)
-    row_label_inline(label)
-    val = st.selectbox(label="", key=key, options=options, index=index, help=help_text, label_visibility="collapsed")
-    st.markdown("</div>", unsafe_allow_html=True)
-    return val
+    c1, c2, _ = st.columns([0.48, 0.16, 0.36])
+    with c1:
+        st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
+    with c2:
+        return st.selectbox(label="", key=key, options=options, index=index, help=help_text, label_visibility="collapsed")
 
 # -------------------- Layout --------------------
 left_wide, right_slim = st.columns([4, 1])
@@ -194,8 +199,7 @@ with left_wide:
         # Keypads & Options
         st.markdown("---"); st.markdown("**Keypads & Options**")
         extra1125 = row_number(
-            "Additional ATS1125 LCD Keypad", "extra1125", value=0,
-            info_text="1x ATS1125 Automatically included in BOM, leave blank unless you require more than 1"
+            "Additional ATS1125 LCD Keypad", "extra1125", value=0
         )
         touch1140 = row_number("ATS1140 Touchscreen Keypad", "touch1140", value=0)
         mod_4g = row_select("4G Module Required", "mod_4g", ["No", "Yes"], index=0)
@@ -317,6 +321,7 @@ if generate:
         for e in errors: st.error(e)
         st.stop()
 
+    # Summary
     st.markdown("#### Summary")
     s1, s2, s3, s4, s5 = st.columns([1.2, 1, 1, 1, 1])
     s1.metric("RS-485 Device Count", result["rs485"])
@@ -325,12 +330,12 @@ if generate:
     s4.metric("Outputs Total", result["outputs_total"])
     s5.metric("Doors Total", result["doors_total"])
 
+    # BOM
     st.markdown("#### BOM (SKU / Name / Qty)")
     df = pd.DataFrame(result["rows"], columns=["SKU", "Name", "Qty"]).sort_values(by=["SKU"])
     st.dataframe(df, use_container_width=True, hide_index=True, height=320)
-
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("Download CSV", data=csv, file_name="AXON_BOM.csv", mime="text/csv")
+    st.download_button("Download CSV", data=df.to_csv(index=False).encode("utf-8"),
+                       file_name="AXON_BOM.csv", mime="text/csv")
 else:
     st.info(f"System limits: Doors ≤ {DOOR_MAX}, Outputs ≤ {OUTPUT_MAX}, Zones ≤ {ZONE_MAX}. "
             "Door Outputs mirrors Doors. Set Lift Control to Yes to configure Lifts/Levels.")
