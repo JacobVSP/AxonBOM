@@ -407,10 +407,8 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
         add_bom_line(q, SKU["ATS608"], 1)
 
     # If zones still remain, add DGP hosts (ATS1201E) and ATS1202 modules up to 32 I/O per host.
-    dgp_hosts = []
-    while zones_remaining_after_panel > 0:
-        h = ensure_host_for_zones(dgp_hosts=None)  # placeholder, real helper below
-        break
+  dgp_hosts = []
+place_zones_on_dgp(zones_remaining_after_panel, dgp_hosts, q)
 
     # Use helper functions to actually place zones and outputs on DGPs
     dgp_hosts = []
@@ -576,3 +574,4 @@ else:
         f"System limits: Doors ≤ {DOOR_MAX}, Outputs ≤ {OUTPUT_MAX}, Zones ≤ {ZONE_MAX}. "
         "Door Outputs mirrors Doors."
     )
+
