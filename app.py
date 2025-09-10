@@ -4,12 +4,19 @@ import pandas as pd
 # -------------------- Page & style --------------------
 st.set_page_config(page_title="AXON BOM Generator (Web)", layout="wide")
 
-# Compact, aligned UI
+# Ultra-tight alignment: tiny gaps & narrow input column (labels + inputs very close)
 st.markdown("""
 <style>
 .main .block-container { max-width: 1200px; padding-top: 10px; padding-bottom: 8px; }
+
+/* Generic card */
 .card { border: 1px solid #e6e6e6; border-radius: 10px; padding: 10px 12px; background: #fafafa; }
-div[data-testid="column"] { padding-left: 6px !important; padding-right: 6px !important; }
+
+/* Kill column padding and shrink inter-column gap so fields are right next to labels */
+div[data-testid="stHorizontalBlock"] { gap: 4px !important; }
+div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !important; }
+
+/* Label look */
 .axon-label { font-weight: 600; margin: 4px 0 0 0; line-height: 1.15; }
 
 /* Info icon next to labels */
@@ -18,7 +25,9 @@ div[data-testid="column"] { padding-left: 6px !important; padding-right: 6px !im
 
 /* Shrink number inputs and hide their internal labels (we render our own) */
 div[data-testid="stNumberInput"] label { display: none; }
-div[data-testid="stNumberInput"] input { padding: 2px 6px; height: 30px; text-align: right; }
+div[data-testid="stNumberInput"] input {
+  padding: 2px 6px; height: 30px; text-align: right;
+}
 
 /* Selectbox tidy */
 div[data-baseweb="select"] > div { min-height: 30px; }
@@ -45,15 +54,15 @@ NAME_MAP = {
     "AXON-ATS7341":  "AXON 4G Module",
     "AXON-ATS1455-10Pack": "AXON ISO Cards - 10 Pack",
     "AXON-ATS1453-5Pack":  "AXON Keytags - 5 Pack",
-    "AXON-AXON1180": "AXON Reader",                # updated naming for BOM
-    "AXON-AXON1181": "AXON Keypad Reader",         # updated naming for BOM
-    "HID-20-SEOS":   "HID Seos Reader",            # updated naming for BOM
-    "HID-20-SMART":  "HID Smart Reader",           # updated naming for BOM
-    "HID-20-SEOS-KP":"HID Seos Keypad Reader",     # updated naming for BOM
-    "HID-20-SMART-KP":"HID Smart Keypad Reader",   # updated naming for BOM
+    "AXON-AXON1180": "AXON Reader",
+    "AXON-AXON1181": "AXON Keypad Reader",
+    "HID-20-SEOS":   "HID Seos Reader",
+    "HID-20-SMART":  "HID Smart Reader",
+    "HID-20-SEOS-KP":"HID Seos Keypad Reader",
+    "HID-20-SMART-KP":"HID Smart Keypad Reader",
     "AXON-ATS1330":  "AXON BUS Distributor",
-    "HID-SEOS-ISO":      "HID Seos ISO Card",      # added
-    "HID-SEOS-KEYTAG":   "HID Seos Keytag",        # added
+    "HID-SEOS-ISO":      "HID Seos ISO Card",
+    "HID-SEOS-KEYTAG":   "HID Seos Keytag",
 }
 
 DGP_ZONE_CAP = 32
@@ -99,9 +108,6 @@ def distribute_zones_to_panel_and_dgps(zones_needed, notes):
     return panel_zones, rs485_devices, cdc4_count
 
 def expand_outputs_on_panel(outputs_needed, notes):
-    """
-    5 onboard → + ATS624 (+4) → + ATS1810 on ATS624 (+4) → then up to 4× ATS1811 (+8 each)
-    """
     added = 0
     rs485 = 0
     shortfall = max(0, outputs_needed - OUTPUTS_ONBOARD)
@@ -165,7 +171,7 @@ def validate_caps(doors, zones, outputs_total):
         errs.append("Inputs must be non-negative integers.")
     return errs
 
-# ---- compact row helpers (label left, small input right, close together) ----
+# ---- compact row helpers (label left, tiny gap, 80/20 split) ----
 def row_label(label, info_text=None):
     if info_text:
         st.markdown(
@@ -176,7 +182,7 @@ def row_label(label, info_text=None):
         st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
 
 def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, help_text=None, info_text=None):
-    left, right = st.columns([0.70, 0.30])
+    left, right = st.columns([0.80, 0.20])  # very narrow right column = input sits right next to label
     with left:
         row_label(label, info_text=info_text)
     with right:
@@ -187,7 +193,7 @@ def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, h
         )
 
 def row_select(label, key, options, index=0, help_text=None):
-    left, right = st.columns([0.70, 0.30])
+    left, right = st.columns([0.80, 0.20])
     with left:
         row_label(label)
     with right:
@@ -210,7 +216,7 @@ with left_wide:
         doors = row_number("Doors", "doors", value=0)
         zones = row_number("Zones", "zones", value=0, maxv=ZONE_MAX, help_text=f"Max {ZONE_MAX} (AXON panel capacity)")
 
-        # Outputs; Door Outputs mirrors Doors live
+        # Outputs; Door Outputs mirrors Doors live (disabled display)
         row_number("Door Outputs", "door_outputs_display", value=int(doors), disabled=True)
         siren_outputs = row_number("Siren Outputs", "siren_outputs", value=0)
         other_outputs  = row_number("Other Outputs",  "other_outputs",  value=0)
@@ -218,7 +224,7 @@ with left_wide:
         # Lift toggle
         lift_choice = row_select("Lift Control", "lift_choice", ["No", "Yes"], index=0)
 
-        # Readers (UI names updated)
+        # Readers (updated UI names)
         st.markdown("---")
         st.markdown("**Readers**")
         axon1180 = row_number("AXON Reader", "axon1180", value=0)
@@ -237,17 +243,15 @@ with left_wide:
         )
         touch1140 = row_number("ATS1140 Touchscreen Keypad", "touch1140", value=0)
         mod_4g = row_select("4G Module Required", "mod_4g", ["No", "Yes"], index=0)
-        manual_1330 = row_number("AXON-ATS1330 - BUS Distributor", "manual_1330", value=0)  # label updated
+        manual_1330 = row_number("AXON-ATS1330 - BUS Distributor", "manual_1330", value=0)
 
-        # Credentials (UI names updated + HID Seos items added)
+        # Credentials (updated + added HID Seos items)
         st.markdown("---")
         st.markdown("**Credentials**")
-        # AXON packs
-        cred_iso_pack = row_number("AXON ISO Cards - 10 Pack", "cred_iso_pack", value=0)
-        cred_tag_pack = row_number("AXON Keytags - 5 Pack", "cred_tag_pack", value=0)
-        # NEW: HID Seos loose credentials
-        hid_seos_iso = row_number("HID Seos ISO Cards", "hid_seos_iso", value=0)
-        hid_seos_keytag = row_number("HID Seos Keytags", "hid_seos_keytag", value=0)
+        cred_iso_pack   = row_number("AXON ISO Cards - 10 Pack", "cred_iso_pack", value=0)
+        cred_tag_pack   = row_number("AXON Keytags - 5 Pack",  "cred_tag_pack", value=0)
+        hid_seos_iso    = row_number("HID Seos ISO Cards",     "hid_seos_iso", value=0)
+        hid_seos_keytag = row_number("HID Seos Keytags",       "hid_seos_keytag", value=0)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -284,15 +288,7 @@ with act_cols[1]:
             del st.session_state[k]
         st.experimental_rerun()
 
-# -------------------- Logic --------------------
-def validate_caps(doors, zones, outputs_total):
-    errs = []
-    if zones > ZONE_MAX:
-        errs.append(f"Zones cannot exceed {ZONE_MAX}.")
-    if doors < 0 or zones < 0 or outputs_total < 0:
-        errs.append("Inputs must be non-negative integers.")
-    return errs
-
+# -------------------- Build logic --------------------
 def build_bom(doors, zones, siren_outputs, other_outputs,
               readers, extra1125, touch1140, mod_4g, manual_1330,
               cred_iso_pack, cred_tag_pack, hid_seos_iso, hid_seos_keytag):
