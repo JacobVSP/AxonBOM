@@ -4,32 +4,32 @@ import pandas as pd
 # -------------------- Page & style --------------------
 st.set_page_config(page_title="AXON BOM Generator (Web)", layout="wide")
 
-# Ultra-tight alignment: zero inter-column gap, labels right-aligned, narrow input column
+# Left-aligned labels & inputs, with a 5px gap between columns
 st.markdown("""
 <style>
 .main .block-container { max-width: 1200px; padding-top: 10px; padding-bottom: 8px; }
 
-/* Card styling */
+/* Card */
 .card { border: 1px solid #e6e6e6; border-radius: 10px; padding: 10px 12px; background: #fafafa; }
 
-/* Remove gaps between Streamlit columns so inputs sit right next to labels */
-div[data-testid="stHorizontalBlock"] { gap: 0px !important; }
+/* Keep columns close but readable: 5px */
+div[data-testid="stHorizontalBlock"] { gap: 5px !important; }
 div[data-testid="column"] { padding-left: 0 !important; padding-right: 0 !important; }
 
-/* Label look: right-align so the text hugs the input column */
-.axon-label { font-weight: 600; margin: 4px 0 0 0; line-height: 1.15; text-align: right; }
+/* Labels LEFT aligned */
+.axon-label { font-weight: 600; margin: 4px 0 0 0; line-height: 1.15; text-align: left; }
 
-/* Info icon next to labels */
+/* Info icon */
 .axon-info { cursor: help; font-weight: 700; margin-left: 6px; color: #666; }
 .axon-info:hover { color: #000; }
 
-/* Number inputs: compact and right-aligned text */
+/* Number inputs: compact, text LEFT aligned */
 div[data-testid="stNumberInput"] label { display: none; }
 div[data-testid="stNumberInput"] input {
-  padding: 2px 6px; height: 30px; text-align: right;
+  padding: 2px 6px; height: 30px; text-align: left;
 }
 
-/* Selectbox compact height */
+/* Selectbox compact */
 div[data-baseweb="select"] > div { min-height: 30px; }
 div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; }
 
@@ -42,9 +42,9 @@ div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; 
 ZONES_ONBOARD = 16
 OUTPUTS_ONBOARD = 5
 
-DOOR_MAX    = 56
-OUTPUT_MAX  = 128          # Doors + Sirens + Other
-ZONE_MAX    = 256          # AXON-256AU
+DOOR_MAX    = 56       # Total doors cap
+OUTPUT_MAX  = 128      # Doors + Sirens + Other
+ZONE_MAX    = 256      # Zones cap
 
 NAME_MAP = {
     "AXON-ATS1201E": "AXON DGP Host (32 Zones max / 16 Outputs max)",
@@ -166,7 +166,6 @@ def place_remaining_outputs_on_dgp(shortfall, notes):
     rs485 = sum(1 for s,_,_ in q if s in ("AXON-ATS1201E","AXON-ATS1810","AXON-ATS1811"))
     return added, rs485
 
-# -------------------- Validation (System Limits) --------------------
 def validate_caps(doors, zones, outputs_total):
     errs = []
     if doors > DOOR_MAX:
@@ -179,7 +178,7 @@ def validate_caps(doors, zones, outputs_total):
         errs.append("Inputs must be non-negative integers.")
     return errs
 
-# ---- compact row helpers (label left, ultra-narrow input right) ----
+# ---- compact row helpers (label left, input right; close 5px gap; ~78/22 split) ----
 def row_label(label, info_text=None):
     if info_text:
         st.markdown(
@@ -190,8 +189,7 @@ def row_label(label, info_text=None):
         st.markdown(f"<div class='axon-label'>{label}</div>", unsafe_allow_html=True)
 
 def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, help_text=None, info_text=None):
-    # 88/12 split makes the input column very narrow so it sits right by the label edge
-    left, right = st.columns([0.88, 0.12])
+    left, right = st.columns([0.78, 0.22])  # value sits very close to the name, on the left side overall
     with left:
         row_label(label, info_text=info_text)
     with right:
@@ -202,7 +200,7 @@ def row_number(label, key, minv=0, maxv=None, value=0, step=1, disabled=False, h
         )
 
 def row_select(label, key, options, index=0, help_text=None):
-    left, right = st.columns([0.88, 0.12])
+    left, right = st.columns([0.78, 0.22])
     with left:
         row_label(label)
     with right:
@@ -384,7 +382,7 @@ if generate:
         for e in errors: st.error(e)
         st.stop()
 
-    # ---- Summary strip ----
+    # ---- Summary ----
     st.markdown("#### Summary")
     s1, s2, s3, s4, s5 = st.columns([1.2, 1, 1, 1, 1])
     s1.metric("RS-485 Device Count", result["rs485"])
