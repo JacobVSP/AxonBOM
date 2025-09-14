@@ -30,6 +30,7 @@ div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; 
 # =========================
 ZONES_ONBOARD_PANEL = 16
 OUTPUTS_ONBOARD_PANEL = 5
+DOORS_ONBOARD_PANEL = 8
 DOOR_MAX   = 56
 OUTPUT_MAX = 128
 ZONE_MAX   = 256
@@ -187,12 +188,12 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
     q, notes = [], {}
 
     # Always include the base panel
-    add_bom_line(q, notes, SKU["PANEL"], 1, "Base AXON-256AU Access Control Panel (16 zones, 5 outputs onboard)")
+    add_bom_line(q, notes, SKU["PANEL"], 1, "Base AXON-256AU Access Control Panel (8 doors, 16 zones, 5 outputs onboard)")
 
-    # Add CDC4s for doors
-    if doors > 0:
-        cdc4_count = (doors + 3) // 4
-        add_bom_line(q, notes, SKU["CDC4"], cdc4_count, f"Added {cdc4_count}x CDC4 controllers to support {doors} doors (4 per CDC4)")
+    # Add CDC4s for doors beyond 8 onboard
+    if doors > DOORS_ONBOARD_PANEL:
+        cdc4_count = (doors - DOORS_ONBOARD_PANEL + 3) // 4
+        add_bom_line(q, notes, SKU["CDC4"], cdc4_count, f"Added {cdc4_count}x CDC4 controllers to support {doors} doors (8 onboard + 4 per CDC4)")
 
     # Zones
     remaining_zones = expand_zones_on_panel(zones, q, notes)
@@ -224,10 +225,14 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
     # PDB
     add_bom_line(q, notes, SKU["ATS1330"], manual_1330, "Added Power Distribution Boards")
 
+    # Reader total is based on selections, not doors
+    readers_total = sum(readers.values())
+
     result = {
         "doors_total": doors,
         "zones_total": zones,
         "outputs_total": outputs_total,
+        "readers_total": readers_total,
         "rows": q,
         "notes": notes
     }
@@ -257,7 +262,7 @@ doors = row_number("Doors","doors",0,maxv=DOOR_MAX)
 zones = row_number("Zones","zones",0,maxv=ZONE_MAX)
 st.session_state["door_outputs_display"]=int(doors)
 row_number("Door Outputs","door_outputs_display",st.session_state["door_outputs_display"],disabled=True)
-siren_outputs=row_number("Siren Outputs","siren_outputs",3)  # default 3 siren outputs
+siren_outputs=row_number("Siren Outputs","siren_outputs",0,info_text="If there are no sirens being used, leave at 0. Siren outputs can also be repurposed as door outputs.")
 other_outputs=row_number("Other Outputs","other_outputs",0)
 row_select("Lift Control","lift_choice",["No","Yes"],0)
 
@@ -296,7 +301,7 @@ if generate:
         s1.metric("Doors",result["doors_total"])
         s2.metric("Zones",result["zones_total"])
         s3.metric("Outputs",result["outputs_total"])
-        s4.metric("Readers",result["doors_total"])
+        s4.metric("Readers",result["readers_total"])
 
         st.markdown("#### BOM (SKU / Name / Qty / Notes)")
         bom_with_notes=[]
@@ -313,7 +318,7 @@ if generate:
             ["Doors Supported",result["doors_total"],"",""],
             ["Zones Supported",result["zones_total"],"",""],
             ["Outputs Supported",result["outputs_total"],"",""],
-            ["Readers Supported",result["doors_total"],"",""],
+            ["Readers Supported",result["readers_total"],"",""],
             ["","","",""],
         ]
         summary_df=pd.DataFrame(summary,columns=["SKU","Name","Qty","Connection Notes"])
