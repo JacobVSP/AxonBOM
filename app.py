@@ -39,6 +39,8 @@ PANEL_1811_LIMIT = 4
 # Catalogue (SKU -> Name)
 # =========================
 NAME_MAP = {
+    "AXON-256AU": "AXON 256 Access Control Panel",
+    "AXON-CDC4-AU": "AXON Intelligent 4 Door / Lift Controller",
     "AXON-ATS1180": "AXON Secure Mifare Reader",
     "AXON-ATS1181": "AXON Secure Mifare Reader with Keypad",
     "HID-20NKS-01": "HID Signo 20 Slim Reader, Seos Profile",
@@ -68,6 +70,8 @@ def get_name(sku): return NAME_MAP.get(sku, sku)
 # SKUs
 # =========================
 SKU = dict(
+    PANEL="AXON-256AU",
+    CDC4="AXON-CDC4-AU",
     AXON_READER="AXON-ATS1180",
     AXON_KEYPAD_READER="AXON-ATS1181",
     HID_SEOS_SLIM="HID-20NKS-01",
@@ -182,6 +186,14 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
 
     q, notes = [], {}
 
+    # Always include the base panel
+    add_bom_line(q, notes, SKU["PANEL"], 1, "Base AXON-256AU Access Control Panel (16 zones, 5 outputs onboard)")
+
+    # Add CDC4s for doors
+    if doors > 0:
+        cdc4_count = (doors + 3) // 4
+        add_bom_line(q, notes, SKU["CDC4"], cdc4_count, f"Added {cdc4_count}x CDC4 controllers to support {doors} doors (4 per CDC4)")
+
     # Zones
     remaining_zones = expand_zones_on_panel(zones, q, notes)
     place_zones_on_dgp(remaining_zones, q, notes)
@@ -245,7 +257,7 @@ doors = row_number("Doors","doors",0,maxv=DOOR_MAX)
 zones = row_number("Zones","zones",0,maxv=ZONE_MAX)
 st.session_state["door_outputs_display"]=int(doors)
 row_number("Door Outputs","door_outputs_display",st.session_state["door_outputs_display"],disabled=True)
-siren_outputs=row_number("Siren Outputs","siren_outputs",0)
+siren_outputs=row_number("Siren Outputs","siren_outputs",3)  # default 3 siren outputs
 other_outputs=row_number("Other Outputs","other_outputs",0)
 row_select("Lift Control","lift_choice",["No","Yes"],0)
 
