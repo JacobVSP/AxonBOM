@@ -275,7 +275,13 @@ siren_outputs = row_number(
     info_text="If there are no sirens being used, leave at 0. Siren outputs can also be repurposed as door outputs."
 )
 other_outputs = row_number("Other Outputs", "other_outputs", 0)
-row_select("Lift Control", "lift_choice", ["No", "Yes"], 0)
+# Lift Control (coming soon placeholder)
+c1, c2, _ = st.columns([0.48, 0.16, 0.36])
+with c1:
+    st.markdown("<div class='axon-label'>Lift Control</div>", unsafe_allow_html=True)
+with c2:
+    st.selectbox("", ["Coming Soon"], index=0, key="lift_choice",
+                 label_visibility="collapsed", disabled=True)
 
 st.markdown("---"); st.markdown("#### Readers")
 axon1180 = row_number("AXON Reader", "axon1180", 0)
@@ -355,3 +361,4 @@ if generate:
         csv = export_df.to_csv(index=False).encode("utf-8")
 
         st.download_button("Download CSV", data=csv, file_name="AXON_BOM.csv", mime="text/csv")
+
