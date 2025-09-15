@@ -6,6 +6,21 @@ import pandas as pd
 # =========================
 st.set_page_config(page_title="AXON BOM Generator (Web)", layout="wide")
 
+# =========================
+# Header with Logos
+# =========================
+c1, c2, c3 = st.columns([0.12, 0.12, 0.76])
+with c1:
+    st.image("vsp_logo.png", width=100)   # VSP logo (ensure file exists)
+with c2:
+    st.image("axon_logo.jpg", width=100)  # AXON logo (ensure file exists)
+with c3:
+    st.markdown(
+        "<h2 style='margin-bottom:0;'>AXON BOM Generator (Web)</h2>"
+        "<p style='color:grey; margin-top:2px;'>Build accurate Bills of Materials for AXON systems</p>",
+        unsafe_allow_html=True
+    )
+
 st.markdown("""
 <style>
 .main .block-container { max-width: 1200px; padding-top: 10px; padding-bottom: 8px; }
@@ -87,7 +102,6 @@ NAME_MAP = {
     "HID-SEOS-ISO": "HID Seos ISO Cards",
     "HID-SEOS-KEYTAG": "HID Seos Keytags",
 }
-
 def get_name(sku):
     return NAME_MAP.get(sku, sku)
 
