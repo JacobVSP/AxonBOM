@@ -61,7 +61,8 @@ NAME_MAP = {
     "HID-SEOS-KEYTAG": "HID Seos Keytags",
 }
 
-def get_name(sku): return NAME_MAP.get(sku, sku)
+def get_name(sku): 
+    return NAME_MAP.get(sku, sku)
 
 # =========================
 # SKUs
@@ -95,8 +96,15 @@ SKU = dict(
 # =========================
 # Helpers
 # =========================
+def normalize_int(x):
+    try:
+        return int(x)
+    except:
+        return 0
+
 def add_bom_line(queue, notes, sku, qty, reason):
-    if qty <= 0: return
+    if qty <= 0: 
+        return
     name = get_name(sku)
     for row in queue:
         if row[0] == sku:
@@ -123,7 +131,8 @@ def expand_zones_on_panel(zones_needed, q, notes):
 
 def expand_outputs_on_panel(outputs_needed, outputs_available, q, notes):
     remaining = max(0, outputs_needed - outputs_available)
-    if remaining <= 0: return 0
+    if remaining <= 0: 
+        return 0
     add_bom_line(q, notes, SKU["ATS624"], 1, "Added ATS624 plug-on for +4 outputs")
     remaining -= 4
     if remaining > 0:
@@ -180,7 +189,8 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
               cred_iso_pack, cred_tag_pack, hid_seos_iso, hid_seos_keytag):
     outputs_total = doors + siren_outputs + other_outputs
     errors = validate_caps(doors, zones, outputs_total)
-    if errors: return None, errors
+    if errors: 
+        return None, errors
 
     q, notes = [], {}
 
@@ -239,7 +249,7 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
     return result, None
 
 # =========================
-# Streamlit UI
+# Streamlit UI helper rows
 # =========================
 def row_number(label, key, value=0, minv=0, maxv=None, disabled=False, info_text=None):
     c1, c2, _ = st.columns([0.48, 0.16, 0.36])
@@ -263,48 +273,77 @@ def row_select(label, key, options, index=0):
         return st.selectbox("", options, index=index, key=key, label_visibility="collapsed")
 
 # =========================
-# Layout
+# Layout (Tabbed)
 # =========================
-st.markdown("#### System")
-doors = row_number("Doors", "doors", 0, maxv=DOOR_MAX)
-zones = row_number("Zones", "zones", 0, maxv=ZONE_MAX)
-st.session_state["door_outputs_display"] = int(doors)
-row_number("Door Outputs", "door_outputs_display", st.session_state["door_outputs_display"], disabled=True)
-siren_outputs = row_number(
-    "Siren Outputs", "siren_outputs", 0,
-    info_text="If there are no sirens being used, leave at 0. Siren outputs can also be repurposed as door outputs."
-)
-other_outputs = row_number("Other Outputs", "other_outputs", 0)
-# Lift Control (coming soon placeholder)
-c1, c2, _ = st.columns([0.48, 0.16, 0.36])
-with c1:
-    st.markdown("<div class='axon-label'>Lift Control</div>", unsafe_allow_html=True)
-with c2:
-    st.selectbox("", ["Coming Soon"], index=0, key="lift_choice",
-                 label_visibility="collapsed", disabled=True)
+tab_core, tab_peripherals = st.tabs(["Core System", "Peripherals"])
 
-st.markdown("---"); st.markdown("#### Readers")
-axon1180 = row_number("AXON Reader", "axon1180", 0)
-axon1181 = row_number("AXON Keypad Reader", "axon1181", 0)
-hid20_seos = row_number("HID Seos Reader", "hid20_seos", 0)
-hid20_smart = row_number("HID Smart Reader", "hid_smart", 0)
-hid20_seos_kp = row_number("HID Seos Keypad Reader", "hid_seos_kp", 0)
-hid20_smart_kp = row_number("HID Smart Keypad Reader", "hid_smart_kp", 0)
+with tab_core:
+    st.markdown("#### System")
+    doors = row_number("Doors", "doors", 0, maxv=DOOR_MAX)
+    zones = row_number("Zones", "zones", 0, maxv=ZONE_MAX)
+    st.session_state["door_outputs_display"] = int(doors)
+    row_number("Door Outputs", "door_outputs_display", st.session_state["door_outputs_display"], disabled=True)
+    siren_outputs = row_number(
+        "Siren Outputs", "siren_outputs", 0,
+        info_text="If there are no sirens being used, leave at 0. Siren outputs can also be repurposed as door outputs."
+    )
+    other_outputs = row_number("Other Outputs", "other_outputs", 0)
 
-st.markdown("---"); st.markdown("#### Keypads & Options")
-extra1125 = row_number(
-    "Additional ATS1125 LCD Keypad", "extra1125", 0,
-    info_text="1x ATS1125 Keypad is automatically included in the BOM, leave blank if no additional keypads are required"
-)
-touch1140 = row_number("ATS1140 Touchscreen Keypad", "touch1140", 0)
-mod_4g = row_select("4G Module Required", "mod_4g", ["No", "Yes"], 0)
-manual_1330 = row_number("AXON Power Distribution Board", "manual_1330", 0)
+    # Lift Control – Coming Soon (plain text, no dropdown)
+    c1, c2, _ = st.columns([0.48, 0.16, 0.36])
+    with c1:
+        st.markdown("<div class='axon-label'>Lift Control</div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown("<span style='color: grey;'>Coming Soon</span>", unsafe_allow_html=True)
 
-st.markdown("---"); st.markdown("#### Credentials")
-cred_iso_pack = row_number("AXON ISO Cards - 10 Pack", "cred_iso_pack", 0)
-cred_tag_pack = row_number("AXON Keytags - 5 Pack", "cred_tag_pack", 0)
-hid_seos_iso = row_number("HID Seos ISO Cards", "hid_seos_iso", 0)
-hid_seos_keytag = row_number("HID Seos Keytags", "hid_seos_keytag", 0)
+    st.markdown("---"); st.markdown("#### Readers")
+    axon1180 = row_number("AXON Reader", "axon1180", 0)
+    axon1181 = row_number("AXON Keypad Reader", "axon1181", 0)
+    hid20_seos = row_number("HID Seos Reader", "hid20_seos", 0)
+    hid20_smart = row_number("HID Smart Reader", "hid_smart", 0)
+    hid20_seos_kp = row_number("HID Seos Keypad Reader", "hid_seos_kp", 0)
+    hid20_smart_kp = row_number("HID Smart Keypad Reader", "hid_smart_kp", 0)
+
+    st.markdown("---"); st.markdown("#### Keypads & Options")
+    extra1125 = row_number(
+        "Additional ATS1125 LCD Keypad", "extra1125", 0,
+        info_text="1x ATS1125 Keypad is automatically included in the BOM, leave blank if no additional keypads are required"
+    )
+    touch1140 = row_number("ATS1140 Touchscreen Keypad", "touch1140", 0)
+    mod_4g = row_select("4G Module Required", "mod_4g", ["No", "Yes"], 0)
+    manual_1330 = row_number("AXON Power Distribution Board", "manual_1330", 0)
+
+    st.markdown("---"); st.markdown("#### Credentials")
+    cred_iso_pack = row_number("AXON ISO Cards - 10 Pack", "cred_iso_pack", 0)
+    cred_tag_pack = row_number("AXON Keytags - 5 Pack", "cred_tag_pack", 0)
+    hid_seos_iso = row_number("HID Seos ISO Cards", "hid_seos_iso", 0)
+    hid_seos_keytag = row_number("HID Seos Keytags", "hid_seos_keytag", 0)
+
+with tab_peripherals:
+    st.markdown("#### Peripherals (Locks, PIRs, Reeds, Sirens, etc.)")
+    st.caption("Enter **real SKUs, Names, and Qty**. These rows will be included in the BOM and CSV export.")
+
+    # Init persistent DF in session
+    if "peripherals_df" not in st.session_state:
+        st.session_state["peripherals_df"] = pd.DataFrame(
+            columns=["SKU", "Name", "Qty", "Connection Notes"]
+        )
+
+    # Editable grid
+    edited_df = st.data_editor(
+        st.session_state["peripherals_df"],
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "SKU": st.column_config.TextColumn("SKU", required=True, help="Exact catalogue SKU"),
+            "Name": st.column_config.TextColumn("Name", required=True, help="Exact product name"),
+            "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1, help="Whole number quantity"),
+            "Connection Notes": st.column_config.TextColumn("Connection Notes", help="Optional note for install/connection context")
+        }
+    )
+    # Persist changes
+    st.session_state["peripherals_df"] = edited_df
 
 generate = st.button("Generate BOM", type="primary")
 
@@ -331,6 +370,30 @@ if generate:
     if errors:
         [st.error(e) for e in errors]
     else:
+        # Merge in user-defined peripherals (from Peripherals tab)
+        peripherals_df = st.session_state.get("peripherals_df", pd.DataFrame(columns=["SKU","Name","Qty","Connection Notes"]))
+        peripherals_rows = peripherals_df.fillna("").to_dict(orient="records")
+
+        # Push each peripheral row into BOM
+        for r in peripherals_rows:
+            sku = str(r.get("SKU", "")).strip()
+            name = str(r.get("Name", "")).strip()
+            qty = normalize_int(r.get("Qty", 0))
+            note = str(r.get("Connection Notes", "")).strip()
+
+            if not sku or qty <= 0:
+                continue
+
+            # If SKU already exists in NAME_MAP, use mapped name; otherwise use typed name
+            display_name = NAME_MAP.get(sku, name if name else sku)
+            # Ensure BOM uses add_bom_line for merging & notes concatenation
+            add_bom_line(result["rows"], result["notes"], sku, qty, note if note else "Added via Peripherals")
+
+            # If NAME_MAP didn't have the SKU, ensure future lookups show the user-typed name
+            if sku not in NAME_MAP and display_name:
+                NAME_MAP[sku] = display_name
+
+        # ===== UI summary =====
         st.markdown("#### System Summary")
         s1, s2, s3, s4 = st.columns([1, 1, 1, 1])
         s1.metric("Doors", result["doors_total"])
@@ -340,9 +403,9 @@ if generate:
 
         st.markdown("#### BOM (SKU / Name / Qty / Notes)")
         bom_with_notes = []
-        for sku, name, qty in result["rows"]:
-            joined = "; ".join(result["notes"].get(sku, []))
-            bom_with_notes.append([sku, name, qty, joined])
+        for sku, _, qty in result["rows"]:
+            joined = "; ".join([n for n in result["notes"].get(sku, []) if n])
+            bom_with_notes.append([sku, get_name(sku), qty, joined])
 
         bom_df = pd.DataFrame(bom_with_notes, columns=["SKU", "Name", "Qty", "Connection Notes"])
         st.dataframe(bom_df, use_container_width=True, hide_index=True, height=360)
@@ -361,5 +424,3 @@ if generate:
         csv = export_df.to_csv(index=False).encode("utf-8")
 
         st.download_button("Download CSV", data=csv, file_name="AXON_BOM.csv", mime="text/csv")
-
-
