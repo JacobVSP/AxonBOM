@@ -7,16 +7,16 @@ import pandas as pd
 st.set_page_config(page_title="AXON BOM Generator (Web)", layout="wide")
 
 # =========================
-# Header with Logos
+# Header with Logo
 # =========================
-c1, c2, c3 = st.columns([0.12, 0.12, 0.76])
+c1, c2 = st.columns([0.2, 0.8])
+
 with c1:
-    st.image("vsp_logo.png", width=100)   # VSP logo (ensure file exists)
+    st.image("vsp_logo.png", width=160)   # Larger VSP logo only
+
 with c2:
-    st.image("axon_logo.jpg", width=100)  # AXON logo (ensure file exists)
-with c3:
     st.markdown(
-        "<h2 style='margin-bottom:0;'>AXON BOM Generator (Web)</h2>"
+        "<h2 style='margin-bottom:0;'>AXON BOM Generator</h2>"
         "<p style='color:grey; margin-top:2px;'>Build accurate Bills of Materials for AXON systems</p>",
         unsafe_allow_html=True
     )
@@ -414,3 +414,4 @@ if generate:
         csv = export_df.to_csv(index=False).encode("utf-8")
 
         st.download_button("Download CSV", data=csv, file_name="AXON_BOM.csv", mime="text/csv")
+
