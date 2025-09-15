@@ -22,6 +22,33 @@ div[data-baseweb="select"] > div > div { padding-top: 2px; padding-bottom: 2px; 
 """, unsafe_allow_html=True)
 
 # =========================
+# Instructions
+# =========================
+with st.expander("📖 Instructions", expanded=True):
+    st.markdown("""
+    **How to use the AXON BOM Generator:**
+
+    1. **Core System Tab**  
+       - Enter required **Doors, Zones, and Outputs**.  
+       - Select **Reader types** and their quantities.  
+       - Add **Keypads, 4G module, Power Distribution Boards, and Credentials**.  
+       - The tool automatically calculates required expanders (CDC4, ATS modules).
+
+    2. **Peripherals Tab** *(Coming Soon)*  
+       - This will allow adding Locks, PIRs, Reeds, Sirens, etc., with real SKUs and quantities.
+
+    3. **Generate BOM**  
+       - Click **Generate BOM** to view the System Summary and BOM table.  
+       - Use **Download CSV** to export the BOM (includes the system summary at the top).
+
+    ---
+    **Tips:**
+    - Leave **Siren Outputs** as `0` if none are used (they can be repurposed as door outputs).  
+    - **Lift Control** is marked *Coming Soon* (not yet available).  
+    - Ensure reader quantities reflect actual device count; reader totals are independent of door count.
+    """)
+
+# =========================
 # System limits
 # =========================
 ZONES_ONBOARD_PANEL = 16
@@ -61,7 +88,7 @@ NAME_MAP = {
     "HID-SEOS-KEYTAG": "HID Seos Keytags",
 }
 
-def get_name(sku): 
+def get_name(sku):
     return NAME_MAP.get(sku, sku)
 
 # =========================
@@ -96,14 +123,8 @@ SKU = dict(
 # =========================
 # Helpers
 # =========================
-def normalize_int(x):
-    try:
-        return int(x)
-    except:
-        return 0
-
 def add_bom_line(queue, notes, sku, qty, reason):
-    if qty <= 0: 
+    if qty <= 0:
         return
     name = get_name(sku)
     for row in queue:
@@ -131,7 +152,7 @@ def expand_zones_on_panel(zones_needed, q, notes):
 
 def expand_outputs_on_panel(outputs_needed, outputs_available, q, notes):
     remaining = max(0, outputs_needed - outputs_available)
-    if remaining <= 0: 
+    if remaining <= 0:
         return 0
     add_bom_line(q, notes, SKU["ATS624"], 1, "Added ATS624 plug-on for +4 outputs")
     remaining -= 4
@@ -189,7 +210,7 @@ def build_bom(doors, zones, siren_outputs, other_outputs,
               cred_iso_pack, cred_tag_pack, hid_seos_iso, hid_seos_keytag):
     outputs_total = doors + siren_outputs + other_outputs
     errors = validate_caps(doors, zones, outputs_total)
-    if errors: 
+    if errors:
         return None, errors
 
     q, notes = [], {}
@@ -321,29 +342,7 @@ with tab_core:
 
 with tab_peripherals:
     st.markdown("#### Peripherals (Locks, PIRs, Reeds, Sirens, etc.)")
-    st.caption("Enter **real SKUs, Names, and Qty**. These rows will be included in the BOM and CSV export.")
-
-    # Init persistent DF in session
-    if "peripherals_df" not in st.session_state:
-        st.session_state["peripherals_df"] = pd.DataFrame(
-            columns=["SKU", "Name", "Qty", "Connection Notes"]
-        )
-
-    # Editable grid
-    edited_df = st.data_editor(
-        st.session_state["peripherals_df"],
-        num_rows="dynamic",
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "SKU": st.column_config.TextColumn("SKU", required=True, help="Exact catalogue SKU"),
-            "Name": st.column_config.TextColumn("Name", required=True, help="Exact product name"),
-            "Qty": st.column_config.NumberColumn("Qty", min_value=0, step=1, help="Whole number quantity"),
-            "Connection Notes": st.column_config.TextColumn("Connection Notes", help="Optional note for install/connection context")
-        }
-    )
-    # Persist changes
-    st.session_state["peripherals_df"] = edited_df
+    st.info("Coming Soon — this tab will let you add peripherals (with real SKUs, names, quantities, and notes) that will be included in the BOM and CSV.")
 
 generate = st.button("Generate BOM", type="primary")
 
@@ -370,29 +369,6 @@ if generate:
     if errors:
         [st.error(e) for e in errors]
     else:
-        # Merge in user-defined peripherals (from Peripherals tab)
-        peripherals_df = st.session_state.get("peripherals_df", pd.DataFrame(columns=["SKU","Name","Qty","Connection Notes"]))
-        peripherals_rows = peripherals_df.fillna("").to_dict(orient="records")
-
-        # Push each peripheral row into BOM
-        for r in peripherals_rows:
-            sku = str(r.get("SKU", "")).strip()
-            name = str(r.get("Name", "")).strip()
-            qty = normalize_int(r.get("Qty", 0))
-            note = str(r.get("Connection Notes", "")).strip()
-
-            if not sku or qty <= 0:
-                continue
-
-            # If SKU already exists in NAME_MAP, use mapped name; otherwise use typed name
-            display_name = NAME_MAP.get(sku, name if name else sku)
-            # Ensure BOM uses add_bom_line for merging & notes concatenation
-            add_bom_line(result["rows"], result["notes"], sku, qty, note if note else "Added via Peripherals")
-
-            # If NAME_MAP didn't have the SKU, ensure future lookups show the user-typed name
-            if sku not in NAME_MAP and display_name:
-                NAME_MAP[sku] = display_name
-
         # ===== UI summary =====
         st.markdown("#### System Summary")
         s1, s2, s3, s4 = st.columns([1, 1, 1, 1])
